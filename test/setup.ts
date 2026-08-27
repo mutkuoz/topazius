@@ -9,3 +9,5 @@ if (!globalThis.crypto?.subtle) {
     configurable: true,
   });
 }
+
+import '@testing-library/jest-dom/vitest';
