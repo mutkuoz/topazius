@@ -20,10 +20,18 @@ afterEach(async () => {
 
 const session = (idleMinutes = 15) => createSession({ db, idleMinutes });
 
-/** The empty-vs-locked distinction needs one async storage probe to settle. */
+/**
+ * The empty-vs-locked distinction needs one async storage probe to settle.
+ * onChange() replays the listener immediately on subscribe (see item 2 of
+ * the fix wave), so the first invocation here may fire before that probe
+ * has actually resolved, while state() still reads 'loading'. Keep waiting
+ * until state() has moved past 'loading' rather than resolving on the
+ * first callback.
+ */
 function settled(s: ReturnType<typeof session>): Promise<void> {
   return new Promise((resolve) => {
     const stop = s.onChange(() => {
+      if (s.state() === 'loading') return;
       stop();
       resolve();
     });
@@ -128,20 +136,57 @@ describe('lock', () => {
     expect(s.state()).toBe('unlocked');
   });
 
-  it('notifies subscribers when the state changes', async () => {
+  it('notifies subscribers when the state changes, replaying the current state on subscribe', async () => {
     const s = session();
     await settled(s);
 
     const seen = vi.fn();
     const unsubscribe = s.onChange(seen);
+    // onChange() replays immediately so a late subscriber cannot miss a
+    // transition that already happened - see item 2 of the fix wave.
+    expect(seen).toHaveBeenCalledTimes(1);
 
     await s.enroll(TOKEN, PASS);
     s.lock();
-    expect(seen).toHaveBeenCalledTimes(2);
+    expect(seen).toHaveBeenCalledTimes(3);
 
     unsubscribe();
     await s.unlock(PASS);
-    expect(seen).toHaveBeenCalledTimes(2);
+    expect(seen).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('cold-notify cluster (loading state, replay, error isolation)', () => {
+  it('reports loading, not locked, before the storage probe settles', () => {
+    const s = session();
+    // No await: the readSecret() probe has not resolved yet.
+    expect(s.state()).toBe('loading');
+  });
+
+  it('replays the current state to a subscriber that attaches after the transition already happened', async () => {
+    const s = session();
+    await settled(s); // hasSecret has now resolved to false; state is 'empty'.
+
+    const seen = vi.fn();
+    s.onChange(seen);
+
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(s.state()).toBe('empty');
+  });
+
+  it('does not let one throwing listener break the others or escape onto the caller', async () => {
+    const s = session();
+    await s.enroll(TOKEN, PASS);
+
+    const good = vi.fn();
+    s.onChange(() => {
+      throw new Error('a listener that misbehaves');
+    });
+    s.onChange(good);
+    good.mockClear(); // drop the replay call from subscribing; isolate lock()'s notify().
+
+    expect(() => s.lock()).not.toThrow();
+    expect(good).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -9,6 +9,7 @@ import { NoteView } from './ui/NoteView';
 import { Setup } from './ui/Setup';
 import { Shell } from './ui/Shell';
 import { Tree } from './ui/Tree';
+import './ui/forms.css';
 
 export interface AppProps {
   db: IDBPDatabase<TopaziusDB>;
@@ -17,21 +18,8 @@ export interface AppProps {
 export function App({ db: initialDb }: AppProps) {
   const [, forceRender] = useState(0);
 
-  // createSession() starts an async readSecret() lookup immediately, and
-  // that lookup can resolve - and call notify() - before a useEffect keyed on
-  // `session` gets a chance to run and subscribe. When that happens the
-  // notification is lost and the app is stuck rendering a stale state until
-  // something else happens to trigger a re-render. Subscribing here, in the
-  // same synchronous tick as construction, closes that window; every session
-  // this component ever holds is built through this helper instead of a
-  // deferred effect.
-  const attach = useCallback((newSession: Session): Session => {
-    newSession.onChange(() => forceRender((n) => n + 1));
-    return newSession;
-  }, []);
-
   const [db, setDb] = useState<IDBPDatabase<TopaziusDB>>(initialDb);
-  const [session, setSession] = useState<Session>(() => attach(createSession({ db: initialDb })));
+  const [session, setSession] = useState<Session>(() => createSession({ db: initialDb }));
   const [config, setConfig] = useState<AppConfig | undefined>();
   const [paths, setPaths] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -40,6 +28,12 @@ export function App({ db: initialDb }: AppProps) {
   useEffect(() => {
     void readConfig(db).then(setConfig);
   }, [db]);
+
+  // session.onChange() replays the current state immediately on subscribe,
+  // so this can be a plain effect: it cannot miss a transition that already
+  // happened before it ran (e.g. the constructor's readSecret() probe
+  // resolving before this effect gets a chance to subscribe).
+  useEffect(() => session.onChange(() => forceRender((n) => n + 1)), [session]);
 
   // Any interaction defers the idle lock.
   useEffect(() => {
@@ -133,16 +127,20 @@ export function App({ db: initialDb }: AppProps) {
   const resetVault = useCallback(async () => {
     await session.logout();
     const freshDb = await openVaultDB();
-    const freshSession = attach(createSession({ db: freshDb }));
+    const freshSession = createSession({ db: freshDb });
     setDb(freshDb);
     setSession(freshSession);
     setPaths([]);
     setSelected(null);
     setConfig(undefined);
     setStatus('');
-  }, [session, attach]);
+  }, [session]);
 
   const state = session.state();
+
+  if (state === 'loading') {
+    return <p class="hint">Loading...</p>;
+  }
 
   if (state === 'empty') {
     return <Setup db={db} session={session} onDone={() => void load()} />;

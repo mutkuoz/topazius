@@ -5,7 +5,7 @@ import { type TopaziusDB, destroyVaultDB, readSecret, writeSecret } from './db';
 export const MIN_PASSPHRASE_LENGTH = 10;
 export const SECRET_VERSION = 1;
 
-export type SessionState = 'empty' | 'locked' | 'unlocked';
+export type SessionState = 'loading' | 'empty' | 'locked' | 'unlocked';
 
 export interface SessionDeps {
   db: IDBPDatabase<TopaziusDB>;
@@ -54,7 +54,18 @@ export function createSession(deps: SessionDeps): Session {
   let epoch = 0;
   const listeners = new Set<() => void>();
 
-  const notify = () => listeners.forEach((listener) => listener());
+  // A throwing listener must not stop the others, nor escape onto the
+  // render path: notify() is reachable from state()/getToken()/getKey() via
+  // checkIdle() -> lock(), all of which app.tsx calls in the render body.
+  const notify = () => {
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch (error) {
+        console.error('session listener threw', error);
+      }
+    }
+  };
 
   function clearTimer() {
     if (timer !== null) clearTimeout(timer);
@@ -102,6 +113,7 @@ export function createSession(deps: SessionDeps): Session {
     state() {
       checkIdle();
       if (key !== null) return 'unlocked';
+      if (hasSecret === null) return 'loading';
       return hasSecret === false ? 'empty' : 'locked';
     },
 
@@ -163,6 +175,16 @@ export function createSession(deps: SessionDeps): Session {
 
     onChange(listener) {
       listeners.add(listener);
+      // Replay immediately so a subscriber that attaches after the
+      // constructor-time readSecret() probe already resolved (or after any
+      // other notify()) still learns the current state, instead of relying
+      // on the caller to subscribe in the same synchronous tick as
+      // construction.
+      try {
+        listener();
+      } catch (error) {
+        console.error('session listener threw', error);
+      }
       return () => {
         listeners.delete(listener);
       };
