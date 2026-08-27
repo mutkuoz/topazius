@@ -149,6 +149,35 @@ describe('App: hidden-tab lock (spec §5.3)', () => {
   });
 });
 
+describe('App: reset-vault failure', () => {
+  it('shows a visible failure instead of hanging silently when resetVault cannot reopen storage', async () => {
+    const db = await dbModule.openVaultDB();
+    const user = userEvent.setup();
+    render(<App db={db} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /connect your vault/i })).toBeInTheDocument(),
+    );
+    await enroll(user);
+    await waitFor(() => expect(screen.getByText(/0 notes/i)).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /^lock$/i }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: /^unlock$/i })).toBeInTheDocument());
+
+    // The next openVaultDB() call - the one resetVault() makes right after
+    // session.logout() - rejects, simulating storage becoming unavailable
+    // mid-recovery (private browsing toggled, quota refused, ...).
+    vi.spyOn(dbModule, 'openVaultDB').mockImplementationOnce(async () => {
+      throw new Error('storage unavailable');
+    });
+
+    await user.click(screen.getByRole('button', { name: /forgot/i }));
+
+    expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
+    expect(await screen.findByText(/storage unavailable/i)).toBeInTheDocument();
+  });
+});
+
 describe('App: logout recovery', () => {
   it('recovers a usable database after "I forgot my passphrase" instead of dying with InvalidStateError', async () => {
     const db = await dbModule.openVaultDB();

@@ -24,6 +24,7 @@ export function App({ db: initialDb }: AppProps) {
   const [paths, setPaths] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [status, setStatus] = useState('');
+  const [fatal, setFatal] = useState<string | null>(null);
 
   useEffect(() => {
     void readConfig(db).then(setConfig);
@@ -128,17 +129,37 @@ export function App({ db: initialDb }: AppProps) {
   // session and the db handle it was built with are dead once it resolves.
   // Recovering means opening a fresh handle and building a fresh session
   // around it, then clearing everything derived from the destroyed vault.
+  // Every step here can reject (a second open tab, storage disabled mid-
+  // session, a quota refusal on the fresh open); onForgot's caller ignores
+  // this promise (`void resetVault()`), so an uncaught rejection would be
+  // silent - the "I forgot my passphrase" recovery path dead-ending with no
+  // feedback at all.
   const resetVault = useCallback(async () => {
-    await session.logout();
-    const freshDb = await openVaultDB();
-    const freshSession = createSession({ db: freshDb });
-    setDb(freshDb);
-    setSession(freshSession);
-    setPaths([]);
-    setSelected(null);
-    setConfig(undefined);
-    setStatus('');
+    try {
+      await session.logout();
+      const freshDb = await openVaultDB();
+      const freshSession = createSession({ db: freshDb });
+      setDb(freshDb);
+      setSession(freshSession);
+      setPaths([]);
+      setSelected(null);
+      setConfig(undefined);
+      setStatus('');
+    } catch (error) {
+      setFatal(error instanceof Error ? error.message : 'Could not reset the vault.');
+    }
   }, [session]);
+
+  if (fatal) {
+    return (
+      <div class="panel">
+        <h1>Something went wrong</h1>
+        <p class="alert" role="alert">
+          {fatal}
+        </p>
+      </div>
+    );
+  }
 
   const state = session.state();
 
