@@ -157,3 +157,18 @@ describe('logout', () => {
     reopened.close();
   });
 });
+
+describe('concurrent lock vs. in-flight unlock', () => {
+  it('does not let an in-flight unlock() resurrect a session locked while it was running', async () => {
+    const s = session();
+    await s.enroll(TOKEN, PASS);
+    s.lock();
+
+    const pending = s.unlock(PASS); // real PBKDF2 in flight
+    s.lock(); // races ahead of the pending unlock's continuation
+    await pending;
+
+    expect(s.state()).toBe('locked');
+    expect(() => s.getToken()).toThrow(/locked/i);
+  });
+});

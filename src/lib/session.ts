@@ -22,6 +22,15 @@ export interface Session {
   getKey(): CryptoKey;
   touch(): void;
   onChange(listener: () => void): () => void;
+  /**
+   * Terminal for this `Session` and for the `IDBPDatabase` it was constructed
+   * with: it closes the injected `deps.db` connection and deletes the
+   * database. Neither this `Session` nor that `db` handle can be used
+   * afterwards — every subsequent call other than `state()`/`onChange()`
+   * operates against a closed connection and will throw. A caller that wants
+   * to continue (e.g. enrolling a new token in the same page load) must
+   * `openVaultDB()` again and `createSession()` a fresh instance with it.
+   */
   logout(): Promise<void>;
 }
 
@@ -38,6 +47,11 @@ export function createSession(deps: SessionDeps): Session {
   // caller's fake clock existed cannot be trusted alone, so every accessor
   // re-checks elapsed time against this deadline before answering.
   let deadline: number | null = null;
+  // Bumped by lock() and logout(). enroll()/unlock() capture it before their
+  // real async work (PBKDF2, decrypt, storage) and refuse to assign key/token
+  // afterwards if it moved — otherwise an in-flight unlock() can resurrect a
+  // token after the user (or the idle timer) locked or logged out mid-await.
+  let epoch = 0;
   const listeners = new Set<() => void>();
 
   const notify = () => listeners.forEach((listener) => listener());
@@ -57,6 +71,7 @@ export function createSession(deps: SessionDeps): Session {
   }
 
   function lock() {
+    epoch++;
     clearTimer();
     if (key === null && token === null) return;
     key = null;
@@ -91,11 +106,15 @@ export function createSession(deps: SessionDeps): Session {
     },
 
     async enroll(newToken, passphrase) {
+      const mine = epoch;
       const salt = randomBytes(SALT_BYTES);
       const derived = await derive(passphrase, salt);
       const blob = await encrypt(derived, new TextEncoder().encode(newToken));
 
       await writeSecret(deps.db, { v: SECRET_VERSION, salt, iv: blob.iv, ct: blob.ct });
+
+      // A lock() or logout() ran while this was in flight — do not resurrect it.
+      if (mine !== epoch) return;
 
       key = derived;
       token = newToken;
@@ -105,12 +124,16 @@ export function createSession(deps: SessionDeps): Session {
     },
 
     async unlock(passphrase) {
+      const mine = epoch;
       const stored = await readSecret(deps.db);
       if (!stored) throw new Error('No token is enrolled on this device.');
 
       const derived = await derive(passphrase, stored.salt);
       // AES-GCM's auth tag is the verifier: a wrong passphrase throws here.
       const plaintext = await decrypt(derived, { iv: stored.iv, ct: stored.ct });
+
+      // A lock() or logout() ran while this was in flight — do not resurrect it.
+      if (mine !== epoch) return;
 
       key = derived;
       token = new TextDecoder().decode(plaintext);
@@ -145,7 +168,11 @@ export function createSession(deps: SessionDeps): Session {
       };
     },
 
+    // Terminal: closes deps.db and destroys the vault database. This Session
+    // and the db handle it was built with are both dead once this resolves —
+    // see the doc comment on Session.logout().
     async logout() {
+      epoch++;
       clearTimer();
       key = null;
       token = null;
