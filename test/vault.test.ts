@@ -163,6 +163,31 @@ describe('load', () => {
     expect(vault.state().sealed).toBe('none');
   });
 
+  it('keeps the note count current, and yields to what the queue has to say', async () => {
+    const { vault } = harness({ remote: fakeRemote({ 'a.md': '# A' }) });
+    await vault.load();
+    expect(vault.state().message).toBe('1 note');
+
+    await vault.create('b.md', '# B');
+    expect(vault.state().message).toBe('2 notes');
+  });
+
+  it('reports how many notes did not load', async () => {
+    const remote = fakeRemote({ 'a.md': '# A', 'b.md': '# B' });
+    const gh: GitHubClient = {
+      ...remote.client,
+      getBlob: (sha) =>
+        sha === 'sha-2' ? Promise.reject(new Error('network hiccup')) : remote.client.getBlob(sha),
+    };
+    const vault = createVault({ db, session: fakeSession(), config: CONFIG, gh, commitDebounceMs: 60_000 });
+    open.push(vault);
+
+    await vault.load();
+
+    expect(vault.state().message).toBe('2 notes (1 did not load)');
+    expect(vault.state().failures[0]?.path).toBe('b.md');
+  });
+
   it('builds the search index and the backlink graph', async () => {
     const { vault } = harness({
       remote: fakeRemote({

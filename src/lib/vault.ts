@@ -205,11 +205,23 @@ export function createVault(deps: VaultDeps): Vault {
     return deps.session.getVaultKey() ? 'open' : 'locked';
   }
 
+  /**
+   * What the header says. The queue's word comes first whenever it has one -
+   * "Offline — changes are queued" matters more than a note count - and the
+   * count is the resting state rather than a message that goes stale the
+   * moment a note is created.
+   */
+  function statusText(queueMessage: string, settled: boolean): string {
+    if (!settled && queueMessage) return queueMessage;
+    if (message) return message;
+    return `${paths.length} note${paths.length === 1 ? '' : 's'}`;
+  }
+
   function state(): VaultState {
     const queueState = queue.state();
     return {
       loading,
-      message: message || queueState.message,
+      message: statusText(queueState.message, queueState.status === 'synced'),
       status: queueState.status,
       pending: queueState.pending,
       paths,
@@ -330,10 +342,10 @@ export function createVault(deps: VaultDeps): Vault {
       await loadKeyFile(result.meta.map((entry) => entry.path));
       await refreshDirty();
       await reindex();
+      // Empty on success: state() falls back to the live note count, which a
+      // fixed string would contradict as soon as a note was created.
       message =
-        failures.length > 0
-          ? `${paths.length} notes (${failures.length} did not load)`
-          : `${paths.length} notes`;
+        failures.length > 0 ? `${paths.length} notes (${failures.length} did not load)` : '';
     } catch (error) {
       if (error instanceof GitHubError && error.status === 401) {
         message = 'GitHub rejected your token. It may be expired or revoked.';
