@@ -60,6 +60,11 @@
   color: #7a5200;
 }
 
+.panel button.ack {
+  background: #7a5200;
+  color: #fdf4e3;
+}
+
 .linkish {
   background: none;
   border: 0;

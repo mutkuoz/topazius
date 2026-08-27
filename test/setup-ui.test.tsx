@@ -138,4 +138,47 @@ describe('<Setup />', () => {
     render(<Setup db={db} session={createSession({ db })} onDone={vi.fn()} />);
     expect(document.body.textContent).toMatch(/cannot be recovered/i);
   });
+
+  it('holds a public-repository warning for acknowledgement before persisting anything', async () => {
+    repoResponds({ default_branch: 'main', private: false, permissions: { push: true } });
+    const session = createSession({ db });
+    const onDone = vi.fn();
+
+    render(<Setup db={db} session={session} onDone={onDone} />);
+    await fillForm('a good long passphrase');
+
+    expect(await screen.findByText(/public/i)).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(await readConfig(db)).toBeUndefined();
+    expect(session.state()).not.toBe('unlocked');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /understand/i }));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(await readConfig(db)).toMatchObject({ owner: 'me', repo: 'my-notes', branch: 'main' });
+    expect(session.state()).toBe('unlocked');
+  });
+
+  it('holds a classic-token warning for acknowledgement before persisting anything', async () => {
+    repoResponds(
+      { default_branch: 'main', private: true, permissions: { push: true } },
+      { headers: { 'X-OAuth-Scopes': 'repo' } },
+    );
+    const session = createSession({ db });
+    const onDone = vi.fn();
+
+    render(<Setup db={db} session={session} onDone={onDone} />);
+    await fillForm('a good long passphrase');
+
+    expect(await screen.findByText(/classic/i)).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(await readConfig(db)).toBeUndefined();
+    expect(session.state()).not.toBe('unlocked');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /understand/i }));
+
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(await readConfig(db)).toMatchObject({ owner: 'me', repo: 'my-notes', branch: 'main' });
+    expect(session.state()).toBe('unlocked');
+  });
 });

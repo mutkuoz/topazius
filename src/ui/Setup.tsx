@@ -62,6 +62,15 @@ export interface SetupProps {
   onDone: () => void;
 }
 
+/** A validated setup awaiting the user's acknowledgement of its warnings before it is persisted. */
+interface PendingSetup {
+  owner: string;
+  repo: string;
+  token: string;
+  branch: string;
+  passphrase: string;
+}
+
 export function Setup({ db, session, onDone }: SetupProps) {
   const [owner, setOwner] = useState('');
   const [repo, setRepo] = useState('');
@@ -71,11 +80,24 @@ export function Setup({ db, session, onDone }: SetupProps) {
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<PendingSetup | null>(null);
+
+  async function persist(input: PendingSetup) {
+    await writeConfig(db, {
+      owner: input.owner,
+      repo: input.repo,
+      branch: input.branch,
+      prefs: {},
+    });
+    await session.enroll(input.token, input.passphrase);
+    onDone();
+  }
 
   async function submit(event: Event) {
     event.preventDefault();
     setError(null);
     setWarnings([]);
+    setPending(null);
 
     if (passphrase !== confirm) {
       setError('The two passphrases do not match.');
@@ -90,15 +112,25 @@ export function Setup({ db, session, onDone }: SetupProps) {
     try {
       const trimmed = { owner: owner.trim(), repo: repo.trim(), token: token.trim() };
       const result = await validateSetup(trimmed);
-      await writeConfig(db, {
-        owner: trimmed.owner,
-        repo: trimmed.repo,
-        branch: result.branch,
-        prefs: {},
-      });
-      await session.enroll(trimmed.token, passphrase);
-      setWarnings(result.warnings);
-      onDone();
+      if (result.warnings.length === 0) {
+        await persist({ ...trimmed, branch: result.branch, passphrase });
+      } else {
+        setWarnings(result.warnings);
+        setPending({ ...trimmed, branch: result.branch, passphrase });
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acknowledge() {
+    if (!pending) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await persist(pending);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Something went wrong.');
     } finally {
@@ -182,9 +214,15 @@ export function Setup({ db, session, onDone }: SetupProps) {
         </p>
       ))}
 
-      <button type="submit" disabled={busy}>
-        {busy ? 'Checking...' : 'Unlock vault'}
-      </button>
+      {pending ? (
+        <button type="button" class="ack" onClick={acknowledge} disabled={busy}>
+          {busy ? 'Saving...' : 'I understand — continue'}
+        </button>
+      ) : (
+        <button type="submit" disabled={busy}>
+          {busy ? 'Checking...' : 'Unlock vault'}
+        </button>
+      )}
     </form>
   );
 }
