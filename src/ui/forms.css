@@ -65,6 +65,22 @@
   color: #fdf4e3;
 }
 
+/*
+ * The strength label's own text ("Weak"/"Fair"/"Strong") already conveys the
+ * level; colour here is a bonus for sighted users, never the only signal.
+ */
+.strength-weak {
+  color: #8a1c1c;
+}
+
+.strength-fair {
+  color: #7a5200;
+}
+
+.strength-strong {
+  color: #1c6b3a;
+}
+
 .linkish {
   background: none;
   border: 0;

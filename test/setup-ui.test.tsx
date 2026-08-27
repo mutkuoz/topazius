@@ -158,6 +158,23 @@ describe('<Setup />', () => {
     expect(await readConfig(db)).toBeUndefined();
   });
 
+  it('shows a passphrase strength indicator, conveyed as text, that updates as the field changes', async () => {
+    const user = userEvent.setup();
+    render(<Setup db={db} session={createSession({ db })} onDone={vi.fn()} />);
+
+    expect(screen.queryByText(/passphrase strength/i)).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/^passphrase/i), 'short');
+    expect(screen.getByText(/passphrase strength: weak/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(/^passphrase/i), ' plus a lot more variety: 1A!');
+    expect(screen.getByText(/passphrase strength: (fair|strong)/i)).toBeInTheDocument();
+
+    // Does not block submission below the minimum length - only the
+    // separate 10-character check does.
+    expect(screen.getByRole('button', { name: /unlock vault/i })).not.toBeDisabled();
+  });
+
   it('warns that the passphrase cannot be recovered', () => {
     render(<Setup db={db} session={createSession({ db })} onDone={vi.fn()} />);
     expect(document.body.textContent).toMatch(/cannot be recovered/i);

@@ -7,6 +7,28 @@ import './forms.css';
 
 const TOKEN_SETTINGS_URL = 'https://github.com/settings/personal-access-tokens/new';
 
+type PassphraseStrength = 'weak' | 'fair' | 'strong';
+
+const STRENGTH_LABEL: Record<PassphraseStrength, string> = {
+  weak: 'Weak',
+  fair: 'Fair',
+  strong: 'Strong',
+};
+
+/**
+ * Length-weighted, dependency-free strength estimate: length matters more
+ * than character-class variety (a long plain passphrase beats a short
+ * complex one), but variety still helps. Purely advisory - see
+ * MIN_PASSPHRASE_LENGTH for the one hard gate on submission.
+ */
+export function passphraseStrength(passphrase: string): PassphraseStrength {
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((re) => re.test(passphrase)).length;
+  const points = passphrase.length + classes * 4;
+  if (points >= 34) return 'strong';
+  if (points >= 20) return 'fair';
+  return 'weak';
+}
+
 export interface SetupProps {
   db: IDBPDatabase<TopaziusDB>;
   session: Session;
@@ -172,9 +194,15 @@ export function Setup({ db, session, onDone }: SetupProps) {
             resetValidation();
           }}
           autocomplete="new-password"
+          aria-describedby="passphrase-strength"
           required
         />
       </label>
+      {passphrase.length > 0 && (
+        <p id="passphrase-strength" class={`hint strength-${passphraseStrength(passphrase)}`}>
+          Passphrase strength: {STRENGTH_LABEL[passphraseStrength(passphrase)]}
+        </p>
+      )}
 
       <label>
         Confirm passphrase
