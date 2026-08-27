@@ -149,6 +149,24 @@ describe('getTree', () => {
       'work/nested.md',
     ]);
   });
+
+  it('encodes a branch containing a slash per path segment, so it still resolves', async () => {
+    // encodeURIComponent('feat/x') as a whole would produce 'feat%2Fx', which
+    // the trees endpoint does not resolve. A literal handler at the
+    // slash-preserving path is only reachable if each segment is encoded on
+    // its own; onUnhandledRequest: 'error' fails loudly if the old
+    // whole-ref encoding regresses.
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/git/trees/feat/x', () =>
+        HttpResponse.json({
+          truncated: false,
+          tree: [{ path: 'a.md', type: 'blob', sha: 'sha-a', size: 1 }],
+        }),
+      ),
+    );
+
+    expect(await client().getTree('feat/x')).toEqual([{ path: 'a.md', sha: 'sha-a', size: 1 }]);
+  });
 });
 
 describe('getBlob', () => {

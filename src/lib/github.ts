@@ -86,7 +86,12 @@ export function createClient(options: GitHubClientOptions): GitHubClient {
   }
 
   async function readTree(ref: string, recursive: boolean) {
-    const url = `${base}/git/trees/${encodeURIComponent(ref)}${recursive ? '?recursive=1' : ''}`;
+    // encodeURIComponent(ref) as a whole would percent-encode the slashes in
+    // a branch name like 'feat/x' to 'feat%2Fx', which the trees endpoint
+    // does not resolve. Encode each path segment individually and rejoin so
+    // the slashes survive as real separators.
+    const encodedRef = ref.split('/').map(encodeURIComponent).join('/');
+    const url = `${base}/git/trees/${encodedRef}${recursive ? '?recursive=1' : ''}`;
     return (await request(url)).json() as Promise<{
       truncated: boolean;
       tree: Array<{ path: string; type: string; sha: string; size?: number }>;

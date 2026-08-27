@@ -89,6 +89,29 @@ describe('validateSetup', () => {
       /rejected that token/i,
     );
   });
+
+  it('rejects an owner that would collapse the request path, before ever making a request', async () => {
+    // "." and ".." satisfy the character-class check but are exactly the
+    // dot-segments that collapse "/repos/../my-notes" to "/my-notes" when
+    // the URL is normalised, sending the token's request to the wrong
+    // endpoint. onUnhandledRequest: 'error' (see beforeAll) fails the test
+    // loudly if this reaches the network instead of being rejected up front.
+    await expect(validateSetup({ owner: '..', repo: 'my-notes', token: 'x' })).rejects.toThrow(
+      /may not be/i,
+    );
+  });
+
+  it('rejects an owner starting with a hyphen', async () => {
+    await expect(validateSetup({ owner: '-me', repo: 'my-notes', token: 'x' })).rejects.toThrow(
+      /may not start/i,
+    );
+  });
+
+  it('rejects a repo name containing a path-breaking character', async () => {
+    await expect(validateSetup({ owner: 'me', repo: 'my/notes', token: 'x' })).rejects.toThrow(
+      /letters, digits/i,
+    );
+  });
 });
 
 describe('<Setup />', () => {
