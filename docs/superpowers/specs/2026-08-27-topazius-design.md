@@ -305,7 +305,8 @@ encrypted artifact to manage.
 1. Unlock → read `config`.
 2. `GET /repos/{o}/{r}/git/trees/{branch}?recursive=1` — the entire file list in
    one request. If the response is `truncated: true` (very large vault), fall
-   back to a breadth-first per-directory walk.
+   back to a sequential depth-first per-directory walk, skipping the reserved
+   `assets/` and `.topazius/` directories.
 3. Diff returned blob SHAs against the `notes`/`assets` caches. Fetch only
    changed or missing blobs via `GET /git/blobs/{sha}` with a concurrency cap of
    6, streaming results into the UI as they land.
@@ -601,6 +602,15 @@ frame-ancestors 'none';
 `connect-src` is pinned to the GitHub API — exfiltration to any other origin is
 blocked by the browser even if a dependency were compromised. `'unsafe-inline'`
 is required for styles only; scripts are strictly same-origin and bundled.
+
+**`frame-ancestors` is not enforced by this policy as delivered.** CSP Level 3
+specifies that `frame-ancestors` is ignored when the policy is set via a
+`<meta http-equiv>` element rather than the `Content-Security-Policy` response
+header, and GitHub Pages — this app's deploy target — does not let a static
+site set response headers. A response-header CSP is not an option here, so the
+frame-busting requirement `frame-ancestors 'none'` states is carried instead by
+`main.tsx`, which checks `self !== top` before mounting and refuses to run
+inside a frame.
 
 ### 10.2 Token handling
 
