@@ -3,6 +3,26 @@ import { App } from './app';
 import { openVaultDB } from './lib/db';
 import './ui/forms.css';
 
+/**
+ * The app-shell service worker (spec §10.3, §11.4), which is what makes the
+ * app installable and readable offline. Registered only in a production build:
+ * a worker in front of the dev server serves yesterday's bundle and turns
+ * every change into a debugging session.
+ *
+ * Classic rather than module, for the widest support - vite.config.ts fails
+ * the build if the emitted worker ever stops being self-contained. Failure
+ * here is not fatal: an app with no service worker still works, it just is
+ * not installable, so the rejection is logged rather than surfaced.
+ */
+function registerServiceWorker(): void {
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return;
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+      .catch((error: unknown) => console.warn('Service worker registration failed', error));
+  });
+}
+
 const root = document.getElementById('app');
 if (!root) throw new Error('#app mount point is missing from index.html');
 
@@ -26,6 +46,8 @@ function Fatal({ message }: { message: string }) {
 if (self !== top) {
   render(<Fatal message="Topazius refuses to run inside a frame." />, root);
 } else {
+  registerServiceWorker();
+
   // If IndexedDB is unavailable - private browsing, storage disabled, a
   // quota refusal - this rejects, and an uncaught rejection here means the
   // app renders nothing at all: a blank page, on the very first thing that

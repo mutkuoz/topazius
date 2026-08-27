@@ -5,6 +5,7 @@ import type { Vault } from '../lib/vault';
 import type { Conflict } from '../lib/conflict';
 import { ConflictDialog } from './ConflictDialog';
 import { Editor } from './Editor';
+import { InstallButton } from './Install';
 import { RecoveryKeyShown, SetupEncryption, UnlockVaultKey } from './Encryption';
 import { Backlinks, StatusChip, TagBar } from './Panels';
 import { Palette, type PaletteAction } from './Palette';
@@ -353,6 +354,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               message={state.message}
               onRetry={() => void vault.retry()}
             />
+            <InstallButton />
             {state.sealed === 'locked' && (
               <button type="button" class="secondary" onClick={() => setDialog({ kind: 'unlock-key' })}>
                 Unlock encrypted notes
