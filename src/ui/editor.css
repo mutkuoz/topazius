@@ -1,0 +1,144 @@
+.editor {
+  height: 100%;
+  overflow: auto;
+}
+
+.editor .cm-editor {
+  height: 100%;
+  font: inherit;
+}
+
+.editor .cm-editor.cm-focused {
+  outline: none;
+}
+
+.editor .cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  padding: 0.6rem 0.2rem 40vh;
+}
+
+.editor .cm-content {
+  max-width: 46rem;
+  margin: 0 auto;
+  caret-color: var(--accent, #2f5bd7);
+}
+
+.editor .cm-line {
+  padding-inline: 0.6rem;
+}
+
+.editor .cm-activeLine {
+  background: color-mix(in srgb, var(--selected, #e8eefc) 40%, transparent);
+}
+
+/* Live preview (spec §8.1): styled markdown that is still plain text. */
+.cm-md-heading {
+  font-weight: 700;
+}
+
+.cm-md-h1 {
+  font-size: 1.5em;
+}
+
+.cm-md-h2 {
+  font-size: 1.3em;
+}
+
+.cm-md-h3 {
+  font-size: 1.15em;
+}
+
+.cm-md-strong {
+  font-weight: 700;
+}
+
+.cm-md-em {
+  font-style: italic;
+}
+
+.cm-md-strike {
+  text-decoration: line-through;
+}
+
+.cm-md-code,
+.cm-md-block-code {
+  background: color-mix(in srgb, var(--border, #ddd) 40%, transparent);
+  border-radius: 4px;
+}
+
+.cm-md-quote {
+  color: var(--muted, #6b6b6b);
+  font-style: italic;
+}
+
+.cm-md-list-mark {
+  color: var(--accent, #2f5bd7);
+}
+
+.cm-md-url {
+  color: var(--accent, #2f5bd7);
+  text-decoration: underline;
+}
+
+/*
+ * Markers are dimmed, not hidden: hiding them would move the text under the
+ * cursor as it crosses a line, which is the thing live-preview editors get
+ * wrong. On the cursor's own line they return to full strength.
+ */
+.cm-md-marker {
+  opacity: 0.35;
+}
+
+.cm-md-marker-active {
+  opacity: 1;
+}
+
+.panes {
+  display: grid;
+  grid-template-columns: 1fr;
+  width: 100%;
+  min-width: 0;
+}
+
+.panes.split {
+  grid-template-columns: 1fr 1fr;
+}
+
+.pane {
+  min-width: 0;
+  overflow: auto;
+  height: 100%;
+}
+
+.pane-preview {
+  border-inline-start: 1px solid var(--border, #ddd);
+}
+
+.empty {
+  padding: 2rem;
+}
+
+.panel-inline {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+
+@media (max-width: 768px) {
+  .panes.split {
+    grid-template-columns: 1fr;
+  }
+
+  .panes[data-mobile='edit'] .pane-preview,
+  .panes[data-mobile='preview'] .pane-edit {
+    display: none;
+  }
+
+  .pane-preview {
+    border-inline-start: 0;
+  }
+}

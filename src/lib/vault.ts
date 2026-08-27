@@ -66,6 +66,12 @@ export interface VaultDeps {
   session: Session;
   config: AppConfig;
   onChange?: () => void;
+  /**
+   * Something the *app* must show after this vault is gone. Today that is the
+   * 401 message: the vault locks the session, which unmounts everything here,
+   * and the reason has to survive onto the lock screen.
+   */
+  onNotice?: (message: string) => void;
   /** Overridden in tests so a save does not wait ten seconds to commit. */
   commitDebounceMs?: number;
   /** Injected by tests; production builds one from the session's token. */
@@ -187,7 +193,10 @@ export function createVault(deps: VaultDeps): Vault {
     resolve: resolvePayload,
     onWritten,
     onConflict: () => notify(),
-    onUnauthorized: () => deps.session.lock(),
+    onUnauthorized: () => {
+      deps.onNotice?.('GitHub rejected your token. It may be expired or revoked.');
+      deps.session.lock();
+    },
     onChange: notify,
   });
 
@@ -327,8 +336,9 @@ export function createVault(deps: VaultDeps): Vault {
           : `${paths.length} notes`;
     } catch (error) {
       if (error instanceof GitHubError && error.status === 401) {
-        deps.session.lock();
         message = 'GitHub rejected your token. It may be expired or revoked.';
+        deps.onNotice?.(message);
+        deps.session.lock();
       } else {
         message = messageOf(error, 'Could not load the vault.');
       }

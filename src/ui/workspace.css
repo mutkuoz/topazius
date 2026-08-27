@@ -1,0 +1,12 @@
+/*
+ * Workspace-level bits that do not belong to one component: the split panes
+ * live in editor.css, the chrome in shell.css.
+ */
+.panes {
+  flex: 1;
+}
+
+.shell-main > .hint,
+.shell-main > .panel-inline {
+  flex: 1;
+}

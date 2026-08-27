@@ -1,14 +1,11 @@
+import type { ComponentType } from 'preact';
 import type { IDBPDatabase } from 'idb';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { type AppConfig, type TopaziusDB, openVaultDB, readConfig } from './lib/db';
-import { GitHubError, createClient } from './lib/github';
 import { type Session, createSession } from './lib/session';
-import { loadVault, readNoteText } from './lib/sync';
+import type { UnlockedProps } from './unlocked';
 import { Lock } from './ui/Lock';
-import { NoteView } from './ui/NoteView';
 import { Setup } from './ui/Setup';
-import { Shell } from './ui/Shell';
-import { Tree } from './ui/Tree';
 import './ui/forms.css';
 
 export interface AppProps {
@@ -21,9 +18,7 @@ export function App({ db: initialDb }: AppProps) {
   const [db, setDb] = useState<IDBPDatabase<TopaziusDB>>(initialDb);
   const [session, setSession] = useState<Session>(() => createSession({ db: initialDb }));
   const [config, setConfig] = useState<AppConfig | undefined>();
-  const [paths, setPaths] = useState<string[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [status, setStatus] = useState('');
+  const [notice, setNotice] = useState('');
   const [fatal, setFatal] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,49 +76,36 @@ export function App({ db: initialDb }: AppProps) {
     };
   }, [session]);
 
-  const load = useCallback(async () => {
-    const current = await readConfig(db);
-    if (!current) return;
-    setConfig(current);
-    setStatus('Loading...');
-    try {
-      const gh = createClient({
-        token: () => session.getToken(),
-        owner: current.owner,
-        repo: current.repo,
-      });
-      const { paths, failures } = await loadVault({
-        gh,
-        db,
-        key: session.getKey(),
-        branch: current.branch,
-        onProgress: (p) => setStatus(`Loading ${p.fetched}/${p.total}...`),
-      });
-      setPaths(paths);
-      setStatus(
-        failures.length > 0
-          ? `${paths.length} notes (${failures.length} did not load)`
-          : `${paths.length} notes`,
-      );
-    } catch (error) {
-      // Spec §7.2: a 401 means the token is expired or revoked. Lock, so the
-      // user is sent back through unlock rather than staring at a dead vault.
-      if (error instanceof GitHubError && error.status === 401) {
-        session.lock();
-        setStatus('GitHub rejected your token. It may be expired or revoked.');
-        return;
-      }
-      setStatus(error instanceof Error ? error.message : 'Could not load the vault.');
-    }
-  }, [db, session]);
+  const state = session.state();
 
-  // The derived key must never be threaded through the component tree: this
-  // closure reads it from the session at call time, so NoteView never holds a
-  // reference to it and a locked session throws instead of handing out a
-  // stale key. Memoised so its identity is stable across renders - NoteView's
-  // effect depends on it, and a fresh function every render would re-run that
-  // effect forever.
-  const readNote = useCallback((path: string) => readNoteText(db, session.getKey(), path), [db, session]);
+  // The editor half of the app is loaded on demand (see unlocked.tsx): it is
+  // most of the bytes, and none of them are needed to render setup or the
+  // lock screen. Kept in state rather than fetched per render so a re-render
+  // during load does not start a second import.
+  const [Unlocked, setUnlocked] = useState<ComponentType<UnlockedProps> | null>(null);
+
+  useEffect(() => {
+    if (state !== 'unlocked' || Unlocked !== null) return;
+    let cancelled = false;
+    void import('./unlocked')
+      .then((module) => {
+        if (!cancelled) setUnlocked(() => module.UnlockedApp);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setFatal(
+            error instanceof Error
+              ? `Could not load the editor: ${error.message}`
+              : 'Could not load the editor.',
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state, Unlocked]);
+
+  const onChange = useCallback(() => forceRender((n) => n + 1), []);
 
   // session.logout() closes deps.db and destroys the database, so both the
   // session and the db handle it was built with are dead once it resolves.
@@ -141,10 +123,8 @@ export function App({ db: initialDb }: AppProps) {
       const freshSession = createSession({ db: freshDb });
       setDb(freshDb);
       setSession(freshSession);
-      setPaths([]);
-      setSelected(null);
       setConfig(undefined);
-      setStatus('');
+      setNotice('');
     } catch (error) {
       setFatal(error instanceof Error ? error.message : 'Could not reset the vault.');
     }
@@ -161,14 +141,12 @@ export function App({ db: initialDb }: AppProps) {
     );
   }
 
-  const state = session.state();
-
   if (state === 'loading') {
     return <p class="hint">Loading...</p>;
   }
 
   if (state === 'empty') {
-    return <Setup db={db} session={session} onDone={() => void load()} />;
+    return <Setup db={db} session={session} onDone={() => void readConfig(db).then(setConfig)} />;
   }
 
   if (state === 'locked') {
@@ -176,19 +154,32 @@ export function App({ db: initialDb }: AppProps) {
       <Lock
         session={session}
         config={config}
-        notice={status}
-        onUnlocked={() => void load()}
+        notice={notice}
+        onUnlocked={() => void readConfig(db).then(setConfig)}
         onForgot={() => void resetVault()}
       />
     );
   }
 
+  if (!config || !Unlocked) {
+    return <p class="hint">Loading...</p>;
+  }
+
   return (
-    <Shell
-      status={status}
-      onLock={() => session.lock()}
-      sidebar={<Tree paths={paths} selected={selected} onSelect={setSelected} />}
-      main={<NoteView readNote={readNote} path={selected} />}
+    <Unlocked
+      db={db}
+      session={session}
+      config={config}
+      onChange={onChange}
+      onNotice={setNotice}
+      onLock={(vault) => {
+        // Whatever is still in the debounce window goes out before the key
+        // disappears. The queue survives a lock either way, but a note that
+        // was one keystroke from being committed should not have to wait for
+        // the next unlock.
+        void vault.flush().finally(() => session.lock());
+        setNotice('');
+      }}
     />
   );
 }
