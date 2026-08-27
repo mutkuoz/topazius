@@ -16,12 +16,18 @@ describe('normalizePath', () => {
     expect(normalizePath('work/standup.md')).toBe('work/standup.md');
   });
 
-  it('strips redundant and leading slashes', () => {
-    expect(normalizePath('/work//standup.md')).toBe('work/standup.md');
+  it('rejects absolute paths and empty segments', () => {
+    expect(() => normalizePath('/work//standup.md')).toThrow(PathError);
+    expect(() => normalizePath('/absolute.md')).toThrow(PathError);
+    expect(() => normalizePath('work//standup.md')).toThrow(PathError);
   });
 
   it('converts backslashes to forward slashes', () => {
     expect(normalizePath('work\\standup.md')).toBe('work/standup.md');
+  });
+
+  it('rejects Windows drive letters', () => {
+    expect(() => normalizePath('C:\\Users\\foo\\bar.md')).toThrow(PathError);
   });
 
   it('normalises to Unicode NFC', () => {
