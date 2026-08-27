@@ -176,6 +176,7 @@ export function App({ db: initialDb }: AppProps) {
       <Lock
         session={session}
         config={config}
+        notice={status}
         onUnlocked={() => void load()}
         onForgot={() => void resetVault()}
       />

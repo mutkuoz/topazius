@@ -8,9 +8,11 @@ export interface LockProps {
   config?: AppConfig;
   onUnlocked: () => void;
   onForgot: () => void;
+  /** e.g. why the vault just locked (spec §5.3's 401 message). Optional: plain re-locks have none. */
+  notice?: string;
 }
 
-export function Lock({ session, config, onUnlocked, onForgot }: LockProps) {
+export function Lock({ session, config, onUnlocked, onForgot, notice }: LockProps) {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,6 +40,11 @@ export function Lock({ session, config, onUnlocked, onForgot }: LockProps) {
       {config && (
         <p class="hint">
           {config.owner}/{config.repo}
+        </p>
+      )}
+      {notice && (
+        <p class="hint" role="status">
+          {notice}
         </p>
       )}
 

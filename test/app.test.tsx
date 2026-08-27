@@ -178,6 +178,28 @@ describe('App: reset-vault failure', () => {
   });
 });
 
+describe('App: 401 locks the session (spec §5.3)', () => {
+  it('locks and reports a rejected token when loading the vault gets a 401', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/git/trees/main', () =>
+        HttpResponse.json({ message: 'Bad credentials' }, { status: 401 }),
+      ),
+    );
+
+    const db = await dbModule.openVaultDB();
+    const user = userEvent.setup();
+    render(<App db={db} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: /connect your vault/i })).toBeInTheDocument(),
+    );
+    await enroll(user);
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: /^unlock$/i })).toBeInTheDocument());
+    expect(screen.getByText(/rejected your token/i)).toBeInTheDocument();
+  });
+});
+
 describe('App: logout recovery', () => {
   it('recovers a usable database after "I forgot my passphrase" instead of dying with InvalidStateError', async () => {
     const db = await dbModule.openVaultDB();
