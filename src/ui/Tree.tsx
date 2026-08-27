@@ -7,6 +7,7 @@ export type TreeAction =
   | { kind: 'delete'; path: string }
   | { kind: 'encrypt'; path: string; on: boolean }
   | { kind: 'encrypt-folder'; folder: string; on: boolean }
+  | { kind: 'folder-default'; folder: string; value: 'plain' | 'encrypted' }
   | { kind: 'move'; path: string; folder: string };
 
 export interface TreeProps {
@@ -14,6 +15,8 @@ export interface TreeProps {
   selected: string | null;
   /** Paths with unsynced local edits, marked with a dot. */
   dirty?: string[];
+  /** A folder's creation default, for the context menu (spec §9.5). */
+  folderDefault?: (folder: string) => 'plain' | 'encrypted';
   onSelect: (path: string) => void;
   onAction?: (action: TreeAction) => void;
 }
@@ -113,7 +116,7 @@ interface MenuTarget {
   y: number;
 }
 
-export function Tree({ paths, selected, dirty = [], onSelect, onAction }: TreeProps) {
+export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onAction }: TreeProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [menu, setMenu] = useState<MenuTarget | null>(null);
   const container = useRef<HTMLElement>(null);
@@ -244,6 +247,23 @@ export function Tree({ paths, selected, dirty = [], onSelect, onAction }: TreePr
               >
                 Decrypt this folder
               </button>
+              {folderDefault && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    act({
+                      kind: 'folder-default',
+                      folder: menu.node.path,
+                      value: folderDefault(menu.node.path) === 'encrypted' ? 'plain' : 'encrypted',
+                    })
+                  }
+                >
+                  {folderDefault(menu.node.path) === 'encrypted'
+                    ? 'Create new notes here plain'
+                    : 'Create new notes here encrypted'}
+                </button>
+              )}
             </>
           ) : (
             <>

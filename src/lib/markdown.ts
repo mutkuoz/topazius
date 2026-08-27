@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
+import footnote from 'markdown-it-footnote';
 import type StateInline from 'markdown-it/lib/rules_inline/state_inline.mjs';
 
 /**
@@ -59,6 +60,32 @@ function wikilink(state: StateInline, silent: boolean): boolean {
   return true;
 }
 
+/**
+ * GFM task lists. markdown-it does not implement them, and hand-rolling the
+ * inline rule is a dozen lines against a plugin that has not been published in
+ * years and ships no types.
+ *
+ * The checkbox is disabled: a click here would have to find the line it came
+ * from and rewrite the note, which the editor pane already does honestly.
+ */
+function taskMarker(state: StateInline, silent: boolean): boolean {
+  const start = state.pos;
+  // Only at the very start of a list item's first paragraph.
+  if (start !== 0 || !state.src.startsWith('[')) return false;
+  const marker = /^\[([ xX])\]\s/.exec(state.src);
+  if (!marker) return false;
+
+  if (!silent) {
+    const token = state.push('topazius_task', 'input', 0);
+    token.attrSet('type', 'checkbox');
+    token.attrSet('disabled', 'disabled');
+    if (marker[1] !== ' ') token.attrSet('checked', 'checked');
+  }
+
+  state.pos = marker[0].length;
+  return true;
+}
+
 const TAG_CHAR = /[\w-]/;
 
 function inlineTag(state: StateInline, silent: boolean): boolean {
@@ -99,8 +126,13 @@ function createRenderer(): MarkdownIt {
     typographer: false,
   });
 
+  md.use(footnote);
   md.inline.ruler.before('link', 'topazius_wikilink', wikilink);
+  md.inline.ruler.before('link', 'topazius_task', taskMarker);
   md.inline.ruler.push('topazius_tag', inlineTag);
+
+  md.renderer.rules['topazius_task'] = (tokens, index, options, _env, self) =>
+    `${self.renderToken(tokens, index, options)} `;
 
   /**
    * The vault is private, so a relative image cannot be fetched by the browser

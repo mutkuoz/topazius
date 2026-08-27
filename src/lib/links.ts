@@ -76,6 +76,48 @@ export interface LinkGraph {
   missing: Map<string, string[]>;
 }
 
+/**
+ * Replace one note's contribution to an existing graph, in place.
+ *
+ * Rebuilding the whole graph on every save would re-parse every note in the
+ * vault behind each keystroke's debounce; this touches only the note that
+ * changed. `paths` is the vault as it stands, for resolving this note's links.
+ */
+export function updateLinksFor(
+  graph: LinkGraph,
+  path: string,
+  body: string,
+  paths: Iterable<string>,
+): void {
+  for (const [target, list] of graph.backlinks) {
+    const kept = list.filter((link) => link.from !== path);
+    if (kept.length === list.length) continue;
+    if (kept.length === 0) graph.backlinks.delete(target);
+    else graph.backlinks.set(target, kept);
+  }
+
+  for (const [target, sources] of graph.missing) {
+    const kept = sources.filter((source) => source !== path);
+    if (kept.length === sources.length) continue;
+    if (kept.length === 0) graph.missing.delete(target);
+    else graph.missing.set(target, kept);
+  }
+
+  for (const link of parseWikilinks(body)) {
+    const target = resolveLink(link.target, paths);
+    if (!target) {
+      const sources = graph.missing.get(link.target) ?? [];
+      if (!sources.includes(path)) sources.push(path);
+      graph.missing.set(link.target, sources);
+      continue;
+    }
+    if (target === path) continue;
+    const list = graph.backlinks.get(target) ?? [];
+    list.push({ from: path, label: link.label, context: lineAround(body, link.index) });
+    graph.backlinks.set(target, list);
+  }
+}
+
 export function buildLinkGraph(notes: Array<{ path: string; body: string }>): LinkGraph {
   const paths = notes.map((note) => note.path);
   const backlinks = new Map<string, Backlink[]>();

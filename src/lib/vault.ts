@@ -19,7 +19,7 @@ import {
   prepareImage,
   resolveAssetPath,
 } from './images';
-import { type Backlink, buildLinkGraph, resolveLink } from './links';
+import { type Backlink, buildLinkGraph, resolveLink, updateLinksFor } from './links';
 import { type EncryptionDefault, defaultForFolder, open as openSealed, seal, toggledPath } from './noteenc';
 import {
   type NoteDeps,
@@ -356,7 +356,9 @@ export function createVault(deps: VaultDeps): Vault {
     await writeSource(noteDeps(), path, text, { dirty: true });
     dirty.add(path);
     search.update(indexNote(path, text));
-    rebuildLinks();
+    // Only this note's links are re-read: a full rebuild would re-parse every
+    // note in the vault behind every save, and saves happen while typing.
+    updateLinksFor(links, path, text, paths);
     await enqueue(path);
     notify();
   }
@@ -377,6 +379,8 @@ export function createVault(deps: VaultDeps): Vault {
     paths = [...paths, normalized];
     dirty.add(normalized);
     search.update(indexNote(normalized, text));
+    // A new note can satisfy links that were previously missing, so this one
+    // is a full rebuild - it happens once per note, not once per keystroke.
     rebuildLinks();
     await enqueue(normalized);
     notify();

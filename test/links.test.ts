@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLinkGraph, parseWikilinks, resolveLink, rewriteLinks } from '../src/lib/links';
+import { buildLinkGraph, parseWikilinks, resolveLink, rewriteLinks, updateLinksFor } from '../src/lib/links';
 
 describe('parseWikilinks', () => {
   it('reads plain links and aliases', () => {
@@ -85,6 +85,46 @@ describe('buildLinkGraph', () => {
   it('does not count a note linking to itself', () => {
     const { backlinks } = buildLinkGraph([{ path: 'a.md', body: '[[a]]' }]);
     expect(backlinks.get('a.md')).toBeUndefined();
+  });
+});
+
+describe('updateLinksFor', () => {
+  const notes = [
+    { path: 'a.md', body: 'see [[b]]' },
+    { path: 'b.md', body: 'nothing here' },
+    { path: 'c.md', body: 'also [[b]]' },
+  ];
+  const paths = notes.map((note) => note.path);
+
+  it('matches a full rebuild after an edit', () => {
+    const graph = buildLinkGraph(notes);
+    updateLinksFor(graph, 'a.md', 'now points at [[c]]', paths);
+
+    const rebuilt = buildLinkGraph([{ path: 'a.md', body: 'now points at [[c]]' }, ...notes.slice(1)]);
+    expect(graph.backlinks).toEqual(rebuilt.backlinks);
+    expect(graph.missing).toEqual(rebuilt.missing);
+  });
+
+  it('leaves other notes’ links in place', () => {
+    const graph = buildLinkGraph(notes);
+    updateLinksFor(graph, 'a.md', 'no links now', paths);
+    expect(graph.backlinks.get('b.md')?.map((link) => link.from)).toEqual(['c.md']);
+  });
+
+  it('drops the last backlink to a note rather than leaving an empty list', () => {
+    const graph = buildLinkGraph([notes[0] as { path: string; body: string }, notes[1] as { path: string; body: string }]);
+    updateLinksFor(graph, 'a.md', 'no links now', ['a.md', 'b.md']);
+    expect(graph.backlinks.has('b.md')).toBe(false);
+  });
+
+  it('tracks a link that has become missing, and one that has been resolved', () => {
+    const graph = buildLinkGraph(notes);
+    updateLinksFor(graph, 'a.md', 'see [[nowhere]]', paths);
+    expect(graph.missing.get('nowhere')).toEqual(['a.md']);
+
+    updateLinksFor(graph, 'a.md', 'see [[b]] again', paths);
+    expect(graph.missing.has('nowhere')).toBe(false);
+    expect(graph.backlinks.get('b.md')?.map((link) => link.from).sort()).toEqual(['a.md', 'c.md']);
   });
 });
 

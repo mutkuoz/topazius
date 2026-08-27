@@ -199,6 +199,20 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               );
           });
           return;
+        case 'folder-default':
+          void vault
+            .setFolderDefault(action.folder, action.value)
+            .then(() =>
+              toast(
+                action.value === 'encrypted'
+                  ? `New notes in ${action.folder || 'the vault root'} will be encrypted.`
+                  : `New notes in ${action.folder || 'the vault root'} will be plain.`,
+              ),
+            )
+            .catch((error: unknown) =>
+              toast(error instanceof Error ? error.message : 'Could not save that preference.'),
+            );
+          return;
         case 'move': {
           const name = action.path.split('/').at(-1) ?? action.path;
           const target = action.folder ? `${action.folder}/${name}` : name;
@@ -381,6 +395,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               paths={visiblePaths}
               selected={selected}
               dirty={state.dirty}
+              folderDefault={(folder) => vault.folderDefault(folder)}
               onSelect={open}
               onAction={onTreeAction}
             />

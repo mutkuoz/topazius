@@ -36,6 +36,7 @@
     "dompurify": "^3.4.14",
     "idb": "^8.0.3",
     "markdown-it": "^14.3.0",
+    "markdown-it-footnote": "^4.0.0",
     "minisearch": "^7.2.0",
     "preact": "^10.29.8"
   },

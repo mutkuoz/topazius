@@ -143,6 +143,30 @@ describe('inline tags', () => {
   });
 });
 
+describe('task lists and footnotes', () => {
+  it('renders a task list as disabled checkboxes', () => {
+    const html = render('- [ ] todo\n- [x] done');
+    const host = document.createElement('div');
+    host.innerHTML = html;
+
+    const boxes = [...host.querySelectorAll('input[type=checkbox]')];
+    expect(boxes).toHaveLength(2);
+    expect(boxes.every((box) => box.hasAttribute('disabled'))).toBe(true);
+    expect(boxes[1]?.hasAttribute('checked')).toBe(true);
+    expect(host.textContent).toContain('todo');
+  });
+
+  it('leaves a bracket that is not a task marker alone', () => {
+    expect(render('- [not a task] here')).not.toContain('<input');
+  });
+
+  it('renders footnotes', () => {
+    const html = render('A claim[^1]\n\n[^1]: the source');
+    expect(html).toContain('footnote');
+    expect(html).toContain('the source');
+  });
+});
+
 describe('images', () => {
   it('defers a vault-relative image to the resolver instead of emitting a src', () => {
     const html = render('![a picture](assets/2026/08/pic-a1b2.png)');
