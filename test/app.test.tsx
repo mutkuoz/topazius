@@ -91,6 +91,10 @@ function fakeSession(): Session {
     getKey: () => {
       throw new Error('not needed by this test');
     },
+    getVaultKey: () => null,
+    createVaultKey: vi.fn(),
+    openVaultKey: vi.fn(),
+    regenerateRecoveryKey: vi.fn(),
     touch: vi.fn(),
     onChange: (listener) => {
       listeners.add(listener);

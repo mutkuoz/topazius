@@ -183,7 +183,12 @@ describe('getTree', () => {
     ]);
   });
 
-  it('skips reserved directories during the fallback walk, never fetching them', async () => {
+  it('walks assets/ but not .topazius/ during the fallback walk', async () => {
+    // assets/ is hidden from the note tree but its contents are exactly what
+    // the image resolver needs, so the walk must descend into it - the
+    // truncated-tree path is the one large vaults take, and images have to
+    // resolve there too. .topazius/ holds one file fetched by name, so
+    // walking it would buy nothing.
     server.use(
       http.get('https://api.github.com/repos/me/my-notes/git/trees/:ref', ({ params, request }) => {
         const recursive = new URL(request.url).searchParams.get('recursive');
@@ -207,14 +212,20 @@ describe('getTree', () => {
             tree: [{ path: 'nested.md', type: 'blob', sha: 'sha-nested', size: 2 }],
           });
         }
-        // No handler registered for sha-assets or sha-topazius: if walk()
-        // ever descends into them, onUnhandledRequest: 'error' (see
-        // beforeAll) fails this test loudly.
+        if (params.ref === 'sha-assets') {
+          return HttpResponse.json({
+            truncated: false,
+            tree: [{ path: 'pic-a1b2c3d4.png', type: 'blob', sha: 'sha-pic', size: 9 }],
+          });
+        }
+        // No handler for sha-topazius: descending into it would hit
+        // onUnhandledRequest: 'error' (see beforeAll) and fail loudly.
         throw new Error(`unexpected tree fetch for ref ${String(params.ref)}`);
       }),
     );
 
     expect((await client().getTree('main')).map((e) => e.path).sort()).toEqual([
+      'assets/pic-a1b2c3d4.png',
       'root.md',
       'work/nested.md',
     ]);

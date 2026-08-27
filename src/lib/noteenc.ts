@@ -50,20 +50,32 @@ export function isSealed(text: string): boolean {
   return /^TPZ1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/m.test(text);
 }
 
-/** Seal a note's exact bytes, frontmatter included, into the §9.4 file body. */
-export async function sealNote(vmk: CryptoKey, path: string, text: string): Promise<string> {
+/**
+ * Seal arbitrary bytes into the §9.4 file body.
+ *
+ * Images use this too (§8.3): one envelope, one code path, one thing to get
+ * right. The base64 costs a third more bytes than a binary container would,
+ * which is the same overhead the Contents API charges on the way to GitHub
+ * anyway.
+ */
+export async function seal(vmk: CryptoKey, path: string, bytes: Uint8Array): Promise<string> {
   const iv = randomBytes(IV_BYTES);
   const ct = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: aad(path) },
     vmk,
-    new TextEncoder().encode(text),
+    bytes as Uint8Array<ArrayBuffer>,
   );
   const payload = `${MAGIC}.${toBase64Url(iv)}.${toBase64Url(new Uint8Array(ct))}`;
   return `${HEADER.join('\n')}\n${payload}\n`;
 }
 
-/** Reverse sealNote(). Throws NoteEncError on a wrong key, wrong path, or tampering. */
-export async function openNote(vmk: CryptoKey, path: string, fileText: string): Promise<string> {
+/** Seal a note's exact bytes, frontmatter included. */
+export function sealNote(vmk: CryptoKey, path: string, text: string): Promise<string> {
+  return seal(vmk, path, new TextEncoder().encode(text));
+}
+
+/** Reverse seal(). Throws NoteEncError on a wrong key, wrong path, or tampering. */
+export async function open(vmk: CryptoKey, path: string, fileText: string): Promise<Uint8Array> {
   const line = fileText.split(/\r?\n/).find((candidate) => candidate.startsWith(`${MAGIC}.`));
   if (!line) {
     throw new NoteEncError('This file is not a sealed Topazius note.');
@@ -79,12 +91,16 @@ export async function openNote(vmk: CryptoKey, path: string, fileText: string): 
       vmk,
       fromBase64Url(ctPart),
     );
-    return new TextDecoder().decode(plaintext);
+    return new Uint8Array(plaintext);
   } catch {
     throw new NoteEncError(
       'This note could not be decrypted. It may have been moved, edited by hand, or sealed with a different key.',
     );
   }
+}
+
+export async function openNote(vmk: CryptoKey, path: string, fileText: string): Promise<string> {
+  return new TextDecoder().decode(await open(vmk, path, fileText));
 }
 
 /** `a.md` ⇄ `a.md.enc`: the two states of one note, per spec §9.5. */

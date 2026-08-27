@@ -1,8 +1,10 @@
 import { type DBSchema, type IDBPDatabase, deleteDB, openDB } from 'idb';
 import type { AssetRecord, NoteRecord, VaultConfig, WrappedSecret } from './types';
+import type { VaultKeyFile } from './vaultkey';
 
 export const DB_NAME = 'topazius';
-export const DB_VERSION = 1;
+/** v2 added the `vaultkey` store; v1 vaults upgrade in place, keeping their notes. */
+export const DB_VERSION = 2;
 
 export type AppConfig = VaultConfig & { prefs: Record<string, unknown> };
 
@@ -30,16 +32,28 @@ export interface TopaziusDB extends DBSchema {
   notes: { key: string; value: NoteRecord };
   assets: { key: string; value: AssetRecord };
   queue: { key: number; value: QueueItem };
+  /**
+   * A copy of the repository's `.topazius/vault.json`. Wrapped key material
+   * only - useless without the passphrase or the recovery key - kept locally so
+   * unlock can open encrypted notes without a second prompt and without
+   * holding the passphrase in memory past unlock.
+   */
+  vaultkey: { key: string; value: VaultKeyFile };
 }
 
 export function openVaultDB(): Promise<IDBPDatabase<TopaziusDB>> {
   const dbPromise = openDB<TopaziusDB>(DB_NAME, DB_VERSION, {
+    // Each store is created only if it is missing, so a v1 vault gains the
+    // v2 store without losing the notes already cached in it.
     upgrade(db) {
-      db.createObjectStore('config');
-      db.createObjectStore('secret');
-      db.createObjectStore('notes', { keyPath: 'path' });
-      db.createObjectStore('assets', { keyPath: 'path' });
-      db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+      if (!db.objectStoreNames.contains('config')) db.createObjectStore('config');
+      if (!db.objectStoreNames.contains('secret')) db.createObjectStore('secret');
+      if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'path' });
+      if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'path' });
+      if (!db.objectStoreNames.contains('queue')) {
+        db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('vaultkey')) db.createObjectStore('vaultkey');
     },
     // Fires on THIS connection when another tab tries to open a newer
     // version or delete the database (see destroyVaultDB) while this one is
@@ -100,4 +114,28 @@ export function allNotes(db: IDBPDatabase<TopaziusDB>): Promise<NoteRecord[]> {
 
 export async function deleteNote(db: IDBPDatabase<TopaziusDB>, path: string): Promise<void> {
   await db.delete('notes', path);
+}
+
+export function readAsset(db: IDBPDatabase<TopaziusDB>, path: string): Promise<AssetRecord | undefined> {
+  return db.get('assets', path);
+}
+
+export async function writeAsset(db: IDBPDatabase<TopaziusDB>, asset: AssetRecord): Promise<void> {
+  await db.put('assets', asset);
+}
+
+export function allAssets(db: IDBPDatabase<TopaziusDB>): Promise<AssetRecord[]> {
+  return db.getAll('assets');
+}
+
+export async function deleteAsset(db: IDBPDatabase<TopaziusDB>, path: string): Promise<void> {
+  await db.delete('assets', path);
+}
+
+export function readVaultKeyFile(db: IDBPDatabase<TopaziusDB>): Promise<VaultKeyFile | undefined> {
+  return db.get('vaultkey', 'vault');
+}
+
+export async function writeVaultKeyFile(db: IDBPDatabase<TopaziusDB>, file: VaultKeyFile): Promise<void> {
+  await db.put('vaultkey', file, 'vault');
 }

@@ -1,5 +1,3 @@
-import { isReservedPath } from './paths';
-
 const API = 'https://api.github.com';
 
 export interface GitHubErrorDetails {
@@ -175,11 +173,12 @@ export function createClient(options: GitHubClientOptions): GitHubClient {
       if (node.type === 'blob') {
         entries.push({ path, sha: node.sha, size: node.size ?? 0 });
       } else if (node.type === 'tree') {
-        // assets/ and .topazius/ are reserved and hidden from the note
-        // tree (sync.ts filters them too); skip descending into them here
-        // so a large assets/ folder doesn't cost extra requests for
-        // nothing.
-        if (isReservedPath(`${path}/`)) continue;
+        // .topazius/ holds one small file that sync.ts fetches by name; there
+        // is nothing to discover by walking it. assets/ *is* walked, because
+        // the image resolver needs to know which assets exist - skipping it
+        // here would leave images unresolvable in exactly the vaults large
+        // enough to truncate the recursive tree.
+        if (path === '.topazius' || path.startsWith('.topazius/')) continue;
         entries.push(...(await walk(node.sha, path)));
       }
     }
