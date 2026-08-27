@@ -91,6 +91,16 @@ describe('db', () => {
     db.close();
   });
 
+  it('closes a still-open connection via blocking(), so a concurrent destroy is not blocked forever', async () => {
+    // A second "tab" opens its own connection and never closes it. Without
+    // openVaultDB()'s blocking() handler, destroyVaultDB()'s
+    // deleteDatabase() would block on that connection indefinitely - "I
+    // forgot my passphrase" hanging with no feedback.
+    const otherTab = await openVaultDB();
+    await destroyVaultDB();
+    expect(() => otherTab.transaction('config')).toThrow();
+  }, 2000);
+
   it('wipes everything on destroy, as logout requires', async () => {
     const first = await openVaultDB();
     await writeNote(first, note('work/a.md', 'sha-a'));

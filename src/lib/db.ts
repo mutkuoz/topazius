@@ -24,7 +24,7 @@ export interface TopaziusDB extends DBSchema {
 }
 
 export function openVaultDB(): Promise<IDBPDatabase<TopaziusDB>> {
-  return openDB<TopaziusDB>(DB_NAME, DB_VERSION, {
+  const dbPromise = openDB<TopaziusDB>(DB_NAME, DB_VERSION, {
     upgrade(db) {
       db.createObjectStore('config');
       db.createObjectStore('secret');
@@ -32,12 +32,33 @@ export function openVaultDB(): Promise<IDBPDatabase<TopaziusDB>> {
       db.createObjectStore('assets', { keyPath: 'path' });
       db.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
     },
+    // Fires on THIS connection when another tab tries to open a newer
+    // version or delete the database (see destroyVaultDB) while this one is
+    // still open. Without closing here, that other tab's operation blocks
+    // forever with no feedback - "I forgot my passphrase" would hang.
+    // Closing lets it proceed; this tab notices on its next call and
+    // re-opens.
+    blocking() {
+      void dbPromise.then((db) => db.close());
+    },
   });
+  return dbPromise;
 }
 
-/** Logout path: removes the encrypted token and every cached note. */
-export async function destroyVaultDB(): Promise<void> {
-  await deleteDB(DB_NAME);
+/**
+ * Logout path: removes the encrypted token and every cached note.
+ * deleteDatabase() blocks until every open connection closes; if another
+ * tab's connection does not close in time, `onBlocked` lets the caller
+ * surface "close other tabs of this app" instead of hanging with no
+ * feedback. openVaultDB()'s own `blocking` handler closes same-app tabs
+ * automatically, so this is the fallback for whatever does not.
+ */
+export async function destroyVaultDB(onBlocked?: () => void): Promise<void> {
+  await deleteDB(DB_NAME, {
+    blocked() {
+      onBlocked?.();
+    },
+  });
 }
 
 export function readConfig(db: IDBPDatabase<TopaziusDB>): Promise<AppConfig | undefined> {
