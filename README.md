@@ -66,15 +66,16 @@ lets GitHub Pages serve it for free.
 
 Both are off by default on a fork.
 
-**Settings → Actions → General** → *Allow all actions and reusable workflows* → **Save**
+- **Settings → Actions → General** → *Allow all actions and reusable workflows* → **Save**
+- **Settings → Pages** → under *Build and deployment*, set **Source** to **GitHub Actions**
 
-That is the only switch you have to flip. Pages configures itself on the first deploy.
+Both are required, and the Pages one cannot be automated: the deploy workflow's built-in token is not
+permitted to create a Pages site, so the first run fails with *"Get Pages site failed"* until you set
+that Source yourself.
 
-Now go to the **Actions** tab, pick the **Deploy** workflow, and press **Run workflow**. When it
-finishes, your app is live at `https://<your-username>.github.io/topazius/`.
-
-If the run fails on *"Get Pages site failed"*, your account or organisation restricts automatic
-Pages provisioning — set **Settings → Pages → Source** to **GitHub Actions** by hand and re-run.
+Then go to the **Actions** tab, pick the **Deploy** workflow, and press **Run workflow**. When it
+finishes, your app is live at `https://<your-username>.github.io/topazius/` — or under your custom
+domain, if your account has one configured.
 
 ### 3. Create a private repository for your notes
 

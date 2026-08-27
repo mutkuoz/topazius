@@ -31,11 +31,6 @@ jobs:
         env:
           PAGES_BASE: ${{ github.event.repository.name }}
       - uses: actions/configure-pages@v5
-        with:
-          # Provision the Pages site on first run. Without this, a fresh fork's
-          # very first deploy fails with "Get Pages site failed" until someone
-          # sets Settings -> Pages -> Source manually.
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
