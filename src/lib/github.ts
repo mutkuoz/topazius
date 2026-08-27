@@ -34,7 +34,7 @@ export interface GitHubClientOptions {
 export interface GitHubClient {
   getRepo(): Promise<RepoInfo>;
   getTree(branch: string): Promise<TreeEntry[]>;
-  getBlob(sha: string): Promise<Uint8Array>;
+  getBlob(sha: string): Promise<Uint8Array<ArrayBuffer>>;
 }
 
 const CHUNK = 0x8000;
@@ -47,9 +47,10 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function base64ToBytes(b64: string): Uint8Array {
+export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64.replace(/\s/g, ''));
-  const bytes = new Uint8Array(binary.length);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
