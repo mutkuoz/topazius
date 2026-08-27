@@ -1,12 +1,12 @@
 /** AES-GCM ciphertext with the IV it was sealed under. */
 export interface EncryptedBlob {
-  iv: Uint8Array;
-  ct: Uint8Array;
+  iv: Uint8Array<ArrayBuffer>;
+  ct: Uint8Array<ArrayBuffer>;
 }
 
 /** An EncryptedBlob plus the KDF salt needed to re-derive its key. */
 export interface WrappedSecret extends EncryptedBlob {
-  salt: Uint8Array;
+  salt: Uint8Array<ArrayBuffer>;
   v: number;
 }
 
