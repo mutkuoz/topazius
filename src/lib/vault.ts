@@ -616,6 +616,9 @@ export function createVault(deps: VaultDeps): Vault {
     },
 
     async createVaultKey(passphrase) {
+      if (!(await deps.session.verifyPassphrase(passphrase))) {
+        throw new Error('That is not the passphrase this vault is unlocked with.');
+      }
       const created = await deps.session.createVaultKey(passphrase);
       await storeKeyFile(created.file);
       notify();

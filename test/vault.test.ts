@@ -92,6 +92,7 @@ function fakeSession(overrides: Partial<Session> = {}): Session {
     getToken: () => 'token',
     getKey: () => sessionKey,
     getVaultKey: () => vmk,
+    verifyPassphrase: () => Promise.resolve(true),
     createVaultKey: async (passphrase: string) => {
       const created = await createVaultKey(passphrase);
       vmk = created.vmk;
@@ -423,6 +424,19 @@ describe('encryption', () => {
     // to the path, so reading it back at the new path must still work.
     expect(await vault.read('journal/august.md.enc')).toBe('# August\n\nprivate thoughts\n');
     expect(remote.read('journal/august.md.enc')).not.toBe(remote.read('journal/aug.md.enc'));
+  });
+
+  it('refuses to wrap the vault key under a passphrase that is not this vault’s', async () => {
+    // A typo here would be discovered at the next unlock, long after the
+    // recovery key had been put away.
+    const session = fakeSession({ verifyPassphrase: () => Promise.resolve(false) });
+    const { vault } = harness({ session, remote: fakeRemote({ 'a.md': 'x' }) });
+    await vault.load();
+
+    await expect(vault.createVaultKey('a different passphrase')).rejects.toThrow(
+      /not the passphrase this vault is unlocked with/,
+    );
+    expect(vault.state().hasVaultKeyFile).toBe(false);
   });
 
   it('refuses to encrypt before the vault key exists', async () => {

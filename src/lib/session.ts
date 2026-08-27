@@ -49,6 +49,15 @@ export interface Session {
   createVaultKey(passphrase: string): Promise<{ file: VaultKeyFile; recoveryKey: string }>;
   /** Open an existing key file with the passphrase, or with the recovery key. */
   openVaultKey(file: VaultKeyFile, secret: string, which: 'passphrase' | 'recovery'): Promise<void>;
+  /**
+   * True when this is the passphrase the enrolled token is sealed under.
+   *
+   * The encryption ceremony asks for the passphrase again and wraps the vault
+   * key under whatever is typed. Without this check a typo would produce a
+   * vault key that the passphrase cannot open - discovered on the next unlock,
+   * long after the recovery key has been put away.
+   */
+  verifyPassphrase(passphrase: string): Promise<boolean>;
   /** Issue a new recovery key, invalidating the previous one (spec §9.3). */
   regenerateRecoveryKey(file: VaultKeyFile): Promise<{ file: VaultKeyFile; recoveryKey: string }>;
   touch(): void;
@@ -237,6 +246,19 @@ export function createSession(deps: SessionDeps): Session {
       vmk = created.vmk;
       notify();
       return { file: created.file, recoveryKey: created.recoveryKey };
+    },
+
+    async verifyPassphrase(passphrase) {
+      const stored = await readSecret(deps.db);
+      if (!stored) return false;
+      try {
+        const derived = await derive(passphrase, stored.salt);
+        // AES-GCM's tag is the verifier; a wrong passphrase throws here.
+        (await decrypt(derived, { iv: stored.iv, ct: stored.ct })).fill(0);
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     async openVaultKey(file, secret, which) {

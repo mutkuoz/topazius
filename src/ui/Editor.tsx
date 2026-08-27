@@ -7,6 +7,12 @@ export const SAVE_DEBOUNCE_MS = 400;
 
 export interface EditorProps {
   path: string;
+  /**
+   * Filled in with a function that inserts text at the cursor. The image path
+   * has to go into the *live* document: reading the note back from the vault
+   * and appending to it would drop whatever is still inside the save debounce.
+   */
+  insertRef?: { current: ((text: string) => void) | null };
   /** The note's text as last read from the vault. */
   text: string;
   livePreview: boolean;
@@ -27,7 +33,16 @@ export interface EditorProps {
  * once and kept: recreating it on every render would lose the cursor, the
  * undo history, and the scroll position.
  */
-export function Editor({ path, text, livePreview, readOnly, onChange, onSaveNow, onFiles }: EditorProps) {
+export function Editor({
+  path,
+  text,
+  livePreview,
+  readOnly,
+  insertRef,
+  onChange,
+  onSaveNow,
+  onFiles,
+}: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<EditorHandle | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,7 +107,9 @@ export function Editor({ path, text, livePreview, readOnly, onChange, onSaveNow,
     }
 
     handle.current = created;
+    if (insertRef) insertRef.current = (value: string) => created.insert(value);
     return () => {
+      if (insertRef) insertRef.current = null;
       // An edit still inside the debounce must not be lost to a note switch.
       flushPending(notePath);
       created.destroy();

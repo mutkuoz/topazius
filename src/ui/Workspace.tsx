@@ -56,6 +56,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
   const toastId = useRef(0);
   const handled = useRef(new Set<string>());
+  const insertIntoEditor = useRef<((text: string) => void) | null>(null);
 
   const state = vault.state();
 
@@ -119,10 +120,19 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               { bytes: bytes as Uint8Array<ArrayBuffer>, mime: file.type, name: file.name },
               path,
             );
-            const current = await vault.read(path);
-            const next = `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${prepared.markdown}\n`;
-            await vault.save(path, next);
-            setDoc((doc) => (doc && doc.path === path ? { ...doc, text: next } : doc));
+
+            const insert = insertIntoEditor.current;
+            if (insert) {
+              // Into the live document, at the cursor (spec §8.3). The editor's
+              // own change path saves it, so nothing here can overwrite an edit
+              // still sitting inside the save debounce.
+              insert(prepared.markdown);
+            } else {
+              const current = await vault.read(path);
+              const next = `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${prepared.markdown}\n`;
+              await vault.save(path, next);
+              setDoc((doc) => (doc && doc.path === path ? { ...doc, text: next } : doc));
+            }
           } catch (error) {
             toast(error instanceof Error ? error.message : 'That image could not be added.');
           }
@@ -424,6 +434,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
                 <Editor
                   path={doc.path}
                   text={doc.text}
+                  insertRef={insertIntoEditor}
                   livePreview={livePreview}
                   onChange={save}
                   onSaveNow={() => void vault.flush()}

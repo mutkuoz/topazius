@@ -92,6 +92,7 @@ function fakeSession(): Session {
       throw new Error('not needed by this test');
     },
     getVaultKey: () => null,
+    verifyPassphrase: () => Promise.resolve(true),
     createVaultKey: vi.fn(),
     openVaultKey: vi.fn(),
     regenerateRecoveryKey: vi.fn(),

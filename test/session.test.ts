@@ -223,3 +223,20 @@ describe('concurrent lock vs. in-flight unlock', () => {
     expect(() => s.getToken()).toThrow(/locked/i);
   });
 });
+
+describe('verifyPassphrase', () => {
+  it('accepts the passphrase the token is sealed under, and nothing else', async () => {
+    const session = createSession({ db });
+    await session.enroll(TOKEN, PASS);
+
+    expect(await session.verifyPassphrase(PASS)).toBe(true);
+    expect(await session.verifyPassphrase(`${PASS}!`)).toBe(false);
+    // Too short to be a passphrase at all: answered, not thrown.
+    expect(await session.verifyPassphrase('short')).toBe(false);
+  });
+
+  it('answers false when no token is enrolled', async () => {
+    const session = createSession({ db });
+    expect(await session.verifyPassphrase('anything at all')).toBe(false);
+  });
+});
