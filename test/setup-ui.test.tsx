@@ -6,7 +6,8 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type TopaziusDB, destroyVaultDB, openVaultDB, readConfig } from '../src/lib/db';
 import { createSession } from '../src/lib/session';
-import { Setup, validateSetup } from '../src/ui/Setup';
+import { validateSetup } from '../src/lib/setup';
+import { Setup } from '../src/ui/Setup';
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
