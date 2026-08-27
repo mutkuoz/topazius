@@ -115,8 +115,10 @@ export function Editor({
       created.destroy();
       handle.current = null;
     };
-    // Deliberately built once per note: `text` is applied through setDoc below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deliberately keyed on the path alone: the view is built once per note,
+    // and `text` reaches it through setDoc in the effect below. Rebuilding on
+    // every keystroke would throw away the cursor, the undo history, and the
+    // scroll position.
   }, [path]);
 
   // A note switch, or an external change (a conflict resolution, a reload).

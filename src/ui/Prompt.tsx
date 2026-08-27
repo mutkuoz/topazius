@@ -59,8 +59,6 @@ export function Prompt({
             }}
             autocomplete="off"
             spellcheck={false}
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- the dialog exists to take this input
-            autofocus
             required
           />
         </label>

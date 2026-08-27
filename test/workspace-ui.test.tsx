@@ -272,17 +272,37 @@ describe('the command palette', () => {
     expect(options[0]).toHaveTextContent('journal/aug.md.enc');
   });
 
+  it('takes the caret immediately, losing none of what is typed next', async () => {
+    // ⌘K is followed straight away by typing. Focusing from an effect - after
+    // paint - drops the first characters on <body>; a browser run typed
+    // "parser" into an empty palette and got "rser".
+    const { user } = renderWorkspace({ notes: NOTES });
+
+    await user.keyboard('{Meta>}k{/Meta}');
+    await user.keyboard('parser');
+
+    const palette = screen.getByRole('dialog', { name: /command palette/i });
+    expect(within(palette).getByRole('textbox')).toHaveValue('parser');
+  });
+
   it('closes on Escape', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
     await user.keyboard('{Meta>}k{/Meta}');
     await screen.findByRole('dialog', { name: /command palette/i });
-    // The palette focuses its input from an effect; findByRole can resolve
-    // before Preact has flushed it, and a keystroke dispatched in that gap
-    // lands on <body> instead. Wait for the caret to arrive first.
-    await waitFor(() => expect(document.activeElement).toHaveClass('palette-input'));
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('returns focus to where it came from', async () => {
+    const { user } = renderWorkspace({ notes: NOTES });
+    const search = screen.getByRole('button', { name: /search/i });
+
+    await user.click(search);
+    await screen.findByRole('dialog', { name: /command palette/i });
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(document.activeElement).toBe(search));
   });
 });
 

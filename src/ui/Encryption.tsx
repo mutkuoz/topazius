@@ -96,8 +96,6 @@ export function SetupEncryption({ onCreate, onDone, onCancel }: SetupEncryptionP
                 setError(null);
               }}
               autocomplete="current-password"
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- the dialog exists to take this input
-              autofocus
               required
             />
           </label>
@@ -218,8 +216,6 @@ export function UnlockVaultKey({ onUnlock, onClose }: UnlockVaultKeyProps) {
             }}
             autocomplete={which === 'passphrase' ? 'current-password' : 'off'}
             spellcheck={false}
-            // eslint-disable-next-line jsx-a11y/no-autofocus -- the dialog exists to take this input
-            autofocus
             required
           />
         </label>

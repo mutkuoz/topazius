@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef } from 'preact/hooks';
 import './dialog.css';
 
 export interface DialogProps {
@@ -24,16 +24,29 @@ export function Dialog({ title, children, onClose, wide, insistent }: DialogProp
   const panel = useRef<HTMLDivElement>(null);
   const returnTo = useRef<Element | null>(null);
 
-  useEffect(() => {
-    returnTo.current = document.activeElement;
-    const focusable = panel.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
-    (focusable?.[0] ?? panel.current)?.focus();
-
-    return () => {
-      // Focus goes back where it came from, so keyboard users are not dropped
-      // at the top of the document every time a dialog closes.
-      if (returnTo.current instanceof HTMLElement) returnTo.current.focus();
-    };
+  /**
+   * Focus moves in on mount and back out on close, from the ref callback
+   * rather than from an effect: effects run after paint, so a dialog opened by
+   * a keystroke can miss the keystrokes that follow, and one closed before its
+   * effects ever ran would never give focus back at all.
+   */
+  const attachPanel = useCallback((element: HTMLDivElement | null) => {
+    if (element) {
+      panel.current = element;
+      returnTo.current = document.activeElement;
+      // A field first when the dialog has one: every dialog that asks for
+      // something asks for it in a field, and landing on a toggle above it
+      // means the first thing typed goes nowhere.
+      const field = element.querySelector<HTMLElement>('input:not([type=checkbox]), textarea');
+      (field ?? element.querySelector<HTMLElement>(FOCUSABLE) ?? element).focus();
+      return;
+    }
+    panel.current = null;
+    const target = returnTo.current;
+    returnTo.current = null;
+    // Back where it came from, so keyboard users are not dropped at the top of
+    // the document every time a dialog closes.
+    if (target instanceof HTMLElement && target.isConnected) target.focus();
   }, []);
 
   useEffect(() => {
@@ -75,7 +88,7 @@ export function Dialog({ title, children, onClose, wide, insistent }: DialogProp
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        ref={panel}
+        ref={attachPanel}
         tabIndex={-1}
       >
         <h2 class="dialog-title">{title}</h2>

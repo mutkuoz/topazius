@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { IndexedNote, VaultSearch } from '../lib/search';
 import './palette.css';
 
@@ -80,15 +80,28 @@ export function Palette({ search, actions, onOpenNote, onClose }: PaletteProps) 
 
   useEffect(() => setActive(0), [query]);
 
-  // Focus by hand rather than by autofocus: the attribute is honoured
-  // inconsistently for elements added after load, and a palette that opens
-  // without the caret in it is a palette that swallows the first keystroke.
-  useEffect(() => {
-    returnTo.current = document.activeElement;
-    input.current?.focus();
-    return () => {
-      if (returnTo.current instanceof HTMLElement) returnTo.current.focus();
-    };
+  /**
+   * Focus is taken and given back here, in the ref callback, rather than in an
+   * effect. Effects run after paint: ⌘K is followed immediately by typing, and
+   * a browser run typed "parser" into a palette that had not been focused yet
+   * and got "rser". A ref callback runs during the commit, and its null call
+   * runs on unmount even when the component never lived long enough for its
+   * effects to fire.
+   *
+   * Stable identity via useCallback, so Preact invokes it on mount and unmount
+   * only, not on every render.
+   */
+  const attachInput = useCallback((element: HTMLInputElement | null) => {
+    if (element) {
+      input.current = element;
+      returnTo.current = document.activeElement;
+      element.focus();
+      return;
+    }
+    input.current = null;
+    const target = returnTo.current;
+    returnTo.current = null;
+    if (target instanceof HTMLElement && target.isConnected) target.focus();
   }, []);
 
   // Escape closes from anywhere, not only while the input has focus.
@@ -115,7 +128,7 @@ export function Palette({ search, actions, onOpenNote, onClose }: PaletteProps) 
       <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
         <input
           class="palette-input"
-          ref={input}
+          ref={attachInput}
           value={query}
           placeholder="Search notes, or > for commands"
           aria-label="Search notes or run a command"

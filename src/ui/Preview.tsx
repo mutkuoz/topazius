@@ -31,8 +31,12 @@ export function Preview({
   onSelectTag,
   loadImage,
 }: PreviewProps) {
-  const host = useRef<HTMLDivElement>(null);
+  const host = useRef<HTMLElement>(null);
   const urls = useRef(createObjectUrlCache());
+  /** What is currently in the DOM, and which node it was written into. */
+  const painted = useRef<{ html: string; node: Element } | null>(null);
+  /** Bumped per paint; an image that resolves after the next one is discarded. */
+  const generation = useRef(0);
 
   const parsed = parseNote(text);
   const html = renderMarkdown(parsed.body, { resolve: resolveLink });
@@ -46,19 +50,30 @@ export function Preview({
     };
   }, []);
 
-  // Sanitised HTML, assigned in one place. The alternative - rendering through
-  // Preact - would mean rebuilding markdown-it's output as a virtual tree for
-  // no gain, and dangerouslySetInnerHTML on unsanitised text is exactly the
-  // mistake §10.4 exists to prevent.
+  /**
+   * Sanitised HTML, assigned in one place. Rendering it through Preact instead
+   * would mean rebuilding markdown-it's output as a virtual tree for no gain,
+   * and dangerouslySetInnerHTML on unsanitised text is exactly the mistake
+   * §10.4 exists to prevent.
+   *
+   * Deliberately without a dependency array. The check is against what is
+   * *actually in the DOM*, not against what the last render thought it put
+   * there: if Preact ever replaces this element - the surrounding tree changes
+   * shape when a dialog or a toast appears - a dependency-guarded effect would
+   * not re-run, and the pane would sit there blank with no way back.
+   */
   useEffect(() => {
     const element = host.current;
     if (!element) return;
+    if (painted.current?.html === html && painted.current.node === element) return;
+
     element.innerHTML = html;
+    painted.current = { html, node: element };
 
-    let cancelled = false;
-    const images = [...element.querySelectorAll<HTMLImageElement>('img[data-vault-src]')];
+    const mine = ++generation.current;
+    const current = () => generation.current === mine;
 
-    for (const image of images) {
+    for (const image of element.querySelectorAll<HTMLImageElement>('img[data-vault-src]')) {
       const src = image.getAttribute('data-vault-src') ?? '';
       const known = urls.current.get(src);
       if (known) {
@@ -69,28 +84,26 @@ export function Preview({
       image.classList.add('image-loading');
       void loadImage(src)
         .then((asset) => {
-          if (cancelled || !asset) {
-            if (!cancelled) markMissing(image, src);
+          if (!current()) return;
+          if (!asset) {
+            markMissing(image, src);
             return;
           }
           image.src = urls.current.set(src, asset.bytes, asset.mime);
           image.classList.remove('image-loading');
         })
         .catch((error: unknown) => {
-          if (cancelled) return;
+          if (!current()) return;
           markMissing(image, src, error instanceof Error ? error.message : undefined);
         });
     }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [html, loadImage, path]);
+  });
 
   return (
     <article
       class="preview"
       ref={host}
+      data-path={path}
       onClick={(event) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
