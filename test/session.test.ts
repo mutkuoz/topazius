@@ -30,9 +30,15 @@ const session = (idleMinutes = 15) => createSession({ db, idleMinutes });
  */
 function settled(s: ReturnType<typeof session>): Promise<void> {
   return new Promise((resolve) => {
-    const stop = s.onChange(() => {
+    // onChange() replays synchronously, so the listener can run *during*
+    // this initializer - `stop` must be declared before that happens, or
+    // reading it inside the still-running initializer throws a TDZ
+    // ReferenceError that the source's per-listener try/catch then
+    // swallows, leaving resolve() uncalled and the test hanging.
+    let stop: (() => void) | undefined;
+    stop = s.onChange(() => {
       if (s.state() === 'loading') return;
-      stop();
+      stop?.();
       resolve();
     });
   });
