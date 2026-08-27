@@ -124,14 +124,6 @@ export async function writeAsset(db: IDBPDatabase<TopaziusDB>, asset: AssetRecor
   await db.put('assets', asset);
 }
 
-export function allAssets(db: IDBPDatabase<TopaziusDB>): Promise<AssetRecord[]> {
-  return db.getAll('assets');
-}
-
-export async function deleteAsset(db: IDBPDatabase<TopaziusDB>, path: string): Promise<void> {
-  await db.delete('assets', path);
-}
-
 export function readVaultKeyFile(db: IDBPDatabase<TopaziusDB>): Promise<VaultKeyFile | undefined> {
   return db.get('vaultkey', 'vault');
 }

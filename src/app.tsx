@@ -1,11 +1,11 @@
-import type { ComponentType } from 'preact';
 import type { IDBPDatabase } from 'idb';
+import type { ComponentType } from 'preact';
 import { useCallback, useEffect, useState } from 'preact/hooks';
 import { type AppConfig, type TopaziusDB, openVaultDB, readConfig } from './lib/db';
 import { type Session, createSession } from './lib/session';
-import type { UnlockedProps } from './unlocked';
 import { Lock } from './ui/Lock';
 import { Setup } from './ui/Setup';
+import type { UnlockedProps } from './unlocked';
 import './ui/forms.css';
 
 export interface AppProps {

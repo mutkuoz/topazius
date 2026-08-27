@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
+import type { Conflict } from '../lib/conflict';
 import { slugify } from '../lib/paths';
 import { tagCounts } from '../lib/tags';
 import type { Vault } from '../lib/vault';
-import type { Conflict } from '../lib/conflict';
 import { ConflictDialog } from './ConflictDialog';
 import { Editor } from './Editor';
-import { InstallButton } from './Install';
 import { RecoveryKeyShown, SetupEncryption, UnlockVaultKey } from './Encryption';
+import { InstallButton } from './Install';
 import { Backlinks, StatusChip, TagBar } from './Panels';
 import { Palette, type PaletteAction } from './Palette';
 import { Preview } from './Preview';
