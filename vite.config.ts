@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import type { Plugin } from 'vite';
 import preact from '@preact/preset-vite';
-import { resolveBase } from './scripts/base-path';
+import { resolveBase } from './scripts/base-path.js';
 
 const CSP = [
   "default-src 'none'",
