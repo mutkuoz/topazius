@@ -91,15 +91,19 @@ export function App({ db: initialDb }: AppProps) {
         owner: current.owner,
         repo: current.repo,
       });
-      const found = await loadVault({
+      const { paths, failures } = await loadVault({
         gh,
         db,
         key: session.getKey(),
         branch: current.branch,
         onProgress: (p) => setStatus(`Loading ${p.fetched}/${p.total}...`),
       });
-      setPaths(found);
-      setStatus(`${found.length} notes`);
+      setPaths(paths);
+      setStatus(
+        failures.length > 0
+          ? `${paths.length} notes (${failures.length} did not load)`
+          : `${paths.length} notes`,
+      );
     } catch (error) {
       // Spec §7.2: a 401 means the token is expired or revoked. Lock, so the
       // user is sent back through unlock rather than staring at a dead vault.
