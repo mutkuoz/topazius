@@ -37,5 +37,19 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     setupFiles: ['./test/setup.ts'],
+    // fake-indexeddb schedules its async work via Node's setImmediate. Vitest's
+    // default vi.useFakeTimers() fakes setImmediate too, which would freeze every
+    // IndexedDB operation made while fake timers are installed. Scope the fake
+    // clock to what session.ts's idle lock actually needs: setTimeout/clearTimeout
+    // to run the lock callback, and Date so a lazily-checked deadline (see
+    // session.ts) observes time advanced via vi.advanceTimersByTime().
+    // shouldClearNativeTimers lets the fake clearTimeout hand off to the real one
+    // for timers armed before fake timers were installed (session tests install
+    // fake timers only after awaiting real PBKDF2-backed enrolment), instead of
+    // just warning and leaking them.
+    fakeTimers: {
+      toFake: ['setTimeout', 'clearTimeout', 'Date'],
+      shouldClearNativeTimers: true,
+    },
   },
 });
