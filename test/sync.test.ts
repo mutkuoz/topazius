@@ -167,6 +167,19 @@ describe('loadVault', () => {
     expect(seen).toEqual([1, 2]);
   });
 
+  it('binds the note path as AAD, so a cached record cannot be decrypted under a different path', async () => {
+    const gh = fakeGitHub([{ path: 'a.md', sha: 'sha-a', size: 1 }], { 'sha-a': 'A' });
+    await loadVault({ gh, db, key, branch: 'main' });
+
+    const [record] = await allNotes(db);
+    // Same ciphertext, re-keyed under a different path - simulates an
+    // attacker (or a bug) relocating the record rather than the note
+    // actually living at that path.
+    await writeNote(db, { ...record!, path: 'b.md' });
+
+    await expect(readNoteText(db, key, 'b.md')).rejects.toThrow();
+  });
+
   describe('partial failure', () => {
     it('reports a failed blob in `failures` without dropping any other path or throwing', async () => {
       const gh = fakeGitHubWithFailingBlob(

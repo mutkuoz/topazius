@@ -85,7 +85,10 @@ export async function loadVault(deps: LoadDeps): Promise<LoadResult> {
         path: entry.path,
         sha: entry.sha,
         size: entry.size,
-        enc: await encrypt(deps.key, bytes),
+        // Bind the path as AAD (spec §9.4's principle, applied to the local
+        // cache too): a cached record cannot be decrypted after being
+        // relocated to a different path key.
+        enc: await encrypt(deps.key, bytes, new TextEncoder().encode(entry.path)),
         mtime: Date.now(),
         dirty: false,
       });
@@ -107,5 +110,5 @@ export async function readNoteText(
 ): Promise<string> {
   const record = await readNote(db, path);
   if (!record) throw new Error(`Note "${path}" is not cached.`);
-  return new TextDecoder().decode(await decrypt(key, record.enc));
+  return new TextDecoder().decode(await decrypt(key, record.enc, new TextEncoder().encode(path)));
 }
