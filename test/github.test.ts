@@ -1,7 +1,7 @@
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { type GitHubError, base64ToBytes, bytesToBase64, createClient } from '../src/lib/github';
+import { GitHubError, base64ToBytes, bytesToBase64, createClient } from '../src/lib/github';
 
 const TOKEN = 'github_pat_11ABCDEF_supersecretvalue';
 const server = setupServer();
@@ -109,9 +109,10 @@ describe('error handling', () => {
       ),
     );
 
-    const error = (await client()
+    const error: unknown = await client()
       .getRepo()
-      .catch((e: unknown) => e)) as GitHubError;
+      .catch((e: unknown) => e);
+    if (!(error instanceof GitHubError)) throw new Error('expected a GitHubError');
     expect(error.rateLimitRemaining).toBe(0);
     expect(error.retryAfter).toBe(30);
   });
@@ -123,9 +124,10 @@ describe('error handling', () => {
       ),
     );
 
-    const error = (await client()
+    const error: unknown = await client()
       .getRepo()
-      .catch((e: unknown) => e)) as GitHubError;
+      .catch((e: unknown) => e);
+    if (!(error instanceof GitHubError)) throw new Error('expected a GitHubError');
     expect(error.rateLimitRemaining).toBeUndefined();
     expect(error.retryAfter).toBeUndefined();
   });

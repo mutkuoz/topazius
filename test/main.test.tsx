@@ -18,7 +18,7 @@ describe('main: frame-buster', () => {
     // frame-ancestors is unenforceable via the <meta> CSP this app ships,
     // and GitHub Pages cannot set response headers to carry it as one
     // instead (spec §10.1) - main.tsx carries that requirement itself.
-    vi.stubGlobal('top', {} as unknown as Window);
+    vi.stubGlobal('top', {});
 
     await import('../src/main');
 
