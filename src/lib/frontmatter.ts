@@ -104,7 +104,11 @@ export function patchFrontmatter(source: string, changes: Partial<NoteFields>): 
 
   const eol = parsed.fmBlock.includes('\r\n') ? '\r\n' : '\n';
   const lines = parsed.fmBlock.split(/\r?\n/);
-  const closingFence = lines.length - (lines.at(-1) === '' ? 2 : 1);
+  // Tracks the fence's *current* index as lines are spliced in and out
+  // below - it must stay live, not be computed once, or a second inserted
+  // key lands before the first (reversing multi-key appends) and a splice
+  // can shift genuinely-existing lines out of a stale search window.
+  let closingFence = lines.length - (lines.at(-1) === '' ? 2 : 1);
 
   for (const [key, value] of entries) {
     const rendered = renderValue(key, value);
@@ -112,12 +116,16 @@ export function patchFrontmatter(source: string, changes: Partial<NoteFields>): 
 
     if (at === -1) {
       lines.splice(closingFence, 0, rendered);
+      closingFence++; // the fence, and everything at/after it, shifted down by one line
     } else {
       lines[at] = rendered;
       // A replaced inline `tags:` must not leave its old block-list items behind.
       if (key === 'tags') {
         let next = at + 1;
-        while (next < lines.length && /^\s*-\s+/.test(lines[next] ?? '')) lines.splice(next, 1);
+        while (next < lines.length && /^\s*-\s+/.test(lines[next] ?? '')) {
+          lines.splice(next, 1);
+          closingFence--; // removing a block-list line shifts the fence up by one
+        }
       }
     }
   }

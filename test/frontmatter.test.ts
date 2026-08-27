@@ -93,6 +93,18 @@ describe('patchFrontmatter', () => {
     expect(lines[fence - 1]).toBe('updated: 2026-08-27T11:02:00Z');
   });
 
+  it('appends two new keys in the order given, not reversed', () => {
+    // Neither key is present in this block, so both go through the "new
+    // key" splice path in the same call - Plan 2's note creation does
+    // exactly this, setting title + created + tags together.
+    const source = `---\ncustom_key: keep me\n---\nBody\n`;
+    const out = patchFrontmatter(source, { title: 'New Title', created: '2026-08-27T09:00:00Z' });
+    const lines = out.split('\n');
+    const fence = lines.indexOf('---', 1);
+    expect(lines[fence - 2]).toBe('title: New Title');
+    expect(lines[fence - 1]).toBe('created: 2026-08-27T09:00:00Z');
+  });
+
   it('creates a frontmatter block when the note has none', () => {
     const out = patchFrontmatter(NO_FM, { tags: ['new'] });
     expect(out.startsWith('---\ntags: [new]\n---\n')).toBe(true);
