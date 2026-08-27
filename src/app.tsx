@@ -51,13 +51,32 @@ export function App({ db: initialDb }: AppProps) {
     };
   }, [session]);
 
-  // Spec §5.3: lock once the tab has been hidden for five minutes.
+  // Spec §5.3: lock once the tab has been hidden for five minutes. The
+  // setTimeout below is the prompt path while the tab stays hidden, but a
+  // frozen mobile tab, bfcache, or laptop sleep can starve it entirely - the
+  // wall clock keeps moving but nothing runs to fire it. hiddenSince is the
+  // safety net: on return to visible, if five minutes have really elapsed
+  // (checked against Date.now(), not the timer having fired), lock anyway.
   useEffect(() => {
+    let hiddenSince: number | null = null;
     let hiddenTimer: ReturnType<typeof setTimeout> | null = null;
 
     function onVisibilityChange() {
-      if (hiddenTimer !== null) clearTimeout(hiddenTimer);
-      hiddenTimer = document.hidden ? setTimeout(() => session.lock(), 5 * 60_000) : null;
+      if (hiddenTimer !== null) {
+        clearTimeout(hiddenTimer);
+        hiddenTimer = null;
+      }
+
+      if (document.hidden) {
+        hiddenSince = Date.now();
+        hiddenTimer = setTimeout(() => session.lock(), 5 * 60_000);
+        return;
+      }
+
+      if (hiddenSince !== null && Date.now() - hiddenSince >= 5 * 60_000) {
+        session.lock();
+      }
+      hiddenSince = null;
     }
 
     document.addEventListener('visibilitychange', onVisibilityChange);

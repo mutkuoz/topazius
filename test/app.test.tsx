@@ -7,6 +7,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { App } from '../src/app';
 import * as dbModule from '../src/lib/db';
 import { type TopaziusDB, destroyVaultDB } from '../src/lib/db';
+import * as sessionModule from '../src/lib/session';
+import type { Session } from '../src/lib/session';
 
 const server = setupServer();
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
@@ -41,6 +43,7 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   server.resetHandlers();
   for (const handle of opened) {
     try {
@@ -72,6 +75,79 @@ async function enroll(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/confirm/i), 'a good long passphrase');
   await user.click(screen.getByRole('button', { name: /unlock vault/i }));
 }
+
+/**
+ * A minimal Session double for tests that exercise app.tsx's own logic (the
+ * hidden-tab timer) rather than session.ts's. No PBKDF2, no credentials.
+ */
+function fakeSession(): Session {
+  const listeners = new Set<() => void>();
+  return {
+    state: () => 'unlocked',
+    enroll: vi.fn(),
+    unlock: vi.fn(),
+    lock: vi.fn(),
+    getToken: () => 'token',
+    getKey: () => {
+      throw new Error('not needed by this test');
+    },
+    touch: vi.fn(),
+    onChange: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    logout: vi.fn(async () => {}),
+  };
+}
+
+describe('App: hidden-tab lock (spec §5.3)', () => {
+  it('locks on return to visible when the tab was hidden long enough but the timer never fired', async () => {
+    // Reproduces a frozen mobile tab, bfcache, or laptop sleep: the wall
+    // clock advances past the 5-minute mark while hidden, but nothing runs
+    // to fire the pending setTimeout. vi.setSystemTime moves the clock
+    // without running the timer queue - vi.advanceTimersByTime would fire
+    // the timer itself and mask exactly the bug this test targets.
+    vi.useFakeTimers();
+    const db = await dbModule.openVaultDB();
+    const session = fakeSession();
+    vi.spyOn(sessionModule, 'createSession').mockReturnValue(session);
+
+    render(<App db={db} />);
+
+    const hidden = vi.spyOn(document, 'hidden', 'get');
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    vi.setSystemTime(Date.now() + 6 * 60_000);
+
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(session.lock).toHaveBeenCalled();
+    db.close();
+  });
+
+  it('does not lock on return to visible after a short hidden spell', async () => {
+    vi.useFakeTimers();
+    const db = await dbModule.openVaultDB();
+    const session = fakeSession();
+    vi.spyOn(sessionModule, 'createSession').mockReturnValue(session);
+
+    render(<App db={db} />);
+
+    const hidden = vi.spyOn(document, 'hidden', 'get');
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    vi.setSystemTime(Date.now() + 2 * 60_000);
+
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(session.lock).not.toHaveBeenCalled();
+    db.close();
+  });
+});
 
 describe('App: logout recovery', () => {
   it('recovers a usable database after "I forgot my passphrase" instead of dying with InvalidStateError', async () => {
