@@ -93,11 +93,16 @@ export function Setup({ db, session, onDone }: SetupProps) {
     onDone();
   }
 
-  async function submit(event: Event) {
-    event.preventDefault();
+  /** Any edit invalidates a pending, not-yet-persisted validation: only what is currently in the form may be enrolled. */
+  function resetValidation() {
     setError(null);
     setWarnings([]);
     setPending(null);
+  }
+
+  async function submit(event: Event) {
+    event.preventDefault();
+    resetValidation();
 
     if (passphrase !== confirm) {
       setError('The two passphrases do not match.');
@@ -126,11 +131,12 @@ export function Setup({ db, session, onDone }: SetupProps) {
   }
 
   async function acknowledge() {
-    if (!pending) return;
+    if (!pending || busy) return;
     setError(null);
     setBusy(true);
     try {
       await persist(pending);
+      setPending(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Something went wrong.');
     } finally {
@@ -148,12 +154,28 @@ export function Setup({ db, session, onDone }: SetupProps) {
 
       <label>
         Repository owner
-        <input value={owner} onInput={(e) => setOwner(e.currentTarget.value)} autocomplete="off" required />
+        <input
+          value={owner}
+          onInput={(e) => {
+            setOwner(e.currentTarget.value);
+            resetValidation();
+          }}
+          autocomplete="off"
+          required
+        />
       </label>
 
       <label>
         Repository name
-        <input value={repo} onInput={(e) => setRepo(e.currentTarget.value)} autocomplete="off" required />
+        <input
+          value={repo}
+          onInput={(e) => {
+            setRepo(e.currentTarget.value);
+            resetValidation();
+          }}
+          autocomplete="off"
+          required
+        />
       </label>
 
       <label>
@@ -161,7 +183,10 @@ export function Setup({ db, session, onDone }: SetupProps) {
         <input
           type="password"
           value={token}
-          onInput={(e) => setToken(e.currentTarget.value)}
+          onInput={(e) => {
+            setToken(e.currentTarget.value);
+            resetValidation();
+          }}
           autocomplete="off"
           spellcheck={false}
           required
@@ -181,7 +206,10 @@ export function Setup({ db, session, onDone }: SetupProps) {
         <input
           type="password"
           value={passphrase}
-          onInput={(e) => setPassphrase(e.currentTarget.value)}
+          onInput={(e) => {
+            setPassphrase(e.currentTarget.value);
+            resetValidation();
+          }}
           autocomplete="new-password"
           required
         />
@@ -192,7 +220,10 @@ export function Setup({ db, session, onDone }: SetupProps) {
         <input
           type="password"
           value={confirm}
-          onInput={(e) => setConfirm(e.currentTarget.value)}
+          onInput={(e) => {
+            setConfirm(e.currentTarget.value);
+            resetValidation();
+          }}
           autocomplete="new-password"
           required
         />

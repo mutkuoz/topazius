@@ -181,4 +181,25 @@ describe('<Setup />', () => {
     expect(await readConfig(db)).toMatchObject({ owner: 'me', repo: 'my-notes', branch: 'main' });
     expect(session.state()).toBe('unlocked');
   });
+
+  it('clears a pending acknowledgement when the form is edited afterward', async () => {
+    repoResponds({ default_branch: 'main', private: false, permissions: { push: true } });
+    const session = createSession({ db });
+    const onDone = vi.fn();
+
+    render(<Setup db={db} session={session} onDone={onDone} />);
+    await fillForm('a good long passphrase');
+
+    expect(await screen.findByText(/public/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /understand/i })).toBeInTheDocument();
+
+    await userEvent.setup().type(screen.getByLabelText(/access token/i), 'x');
+
+    expect(screen.queryByRole('button', { name: /understand/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/public/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /unlock vault/i })).toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(await readConfig(db)).toBeUndefined();
+    expect(session.state()).not.toBe('unlocked');
+  });
 });
