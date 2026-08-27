@@ -18,6 +18,8 @@ talks directly to the GitHub REST API from the browser.
   private notes repo, and is writing notes in under five minutes.
 - **No trusted third party.** The only network destination is
   `api.github.com`. No analytics, no CDN, no telemetry, no proxy.
+- **Encrypt what matters.** Any individual note can be sealed so that not even
+  GitHub can read it, without forcing that cost on the whole vault.
 - **Never lose an edit.** Local-first writes, offline queue, and SHA-based
   conflict detection so a second device cannot silently clobber the first.
 - **Good UX.** Instant typing, instant search, works on a phone, installable.
@@ -30,7 +32,7 @@ Explicitly out of scope. Each is cut for a reason, not an oversight.
 |---|---|
 | Multi-user, sharing, collaboration | Single-user personal vault. Sharing is `git push`. |
 | Real-time sync / CRDTs | Debounced commits plus conflict resolution is sufficient for one person on a few devices. |
-| Encrypting notes *in the repo* | Would break Obsidian/vim/`git diff` interop, which is the point of the product. Privacy comes from the repo being private. See §9.6. |
+| Encrypting file and folder names | Would make the repo unbrowsable and unrecoverable by hand, and forces a single index file that every rename must rewrite. Note *contents* can be encrypted per note — see §9. |
 | Note version history UI | Git already has it. Link out to the file's GitHub history page. |
 | Non-image attachments (PDF, audio) | Adds upload/preview surface for little gain in v1. |
 | Export to PDF/HTML/docx | Out of scope; the files are already portable. |
@@ -108,6 +110,8 @@ src/
     sync.ts                tree diff, blob hydration, save orchestration
     queue.ts               durable write queue, backoff, offline handling
     conflict.ts            409 detection and resolution outcomes
+    vaultkey.ts            VMK generation, wrap/unwrap, recovery key
+    noteenc.ts             note seal/open, .md.enc detection, toggle planning
     frontmatter.ts         lossless parse/patch/serialize
     paths.ts               normalize, validate, slugify, rename planning
     markdown.ts            markdown-it + DOMPurify pipeline
@@ -140,14 +144,20 @@ opened directly in Obsidian.
 
 ```
 <repo root>/
-  <any folders you like>/**/*.md     notes
-  assets/YYYY/MM/<slug>-<hash>.<ext> images
-  .topazius.json                     app preferences (non-secret)
+  <any folders you like>/**/*.md      notes (plain)
+  <any folders you like>/**/*.md.enc  notes (encrypted — §9)
+  assets/YYYY/MM/<slug>-<hash>.<ext>  images
+  .topazius/
+    prefs.json                        preferences (non-secret)
+    vault.json                        wrapped vault key (only once encryption is used)
 ```
 
-`assets/` is reserved and hidden from the note tree. `.topazius.json` holds
-non-secret preferences (default folder, theme, editor width, idle-lock minutes)
-so they follow the vault across devices.
+`assets/` and `.topazius/` are reserved and hidden from the note tree.
+`.topazius/prefs.json` holds non-secret preferences (default folder, theme,
+editor width, idle-lock minutes, per-folder encryption defaults) so they follow
+the vault across devices. `.topazius/vault.json` holds the wrapped vault key and
+is created only if the user encrypts something (§9.2). Neither file ever
+contains a secret in usable form.
 
 ### 4.2 Note format
 
@@ -191,7 +201,9 @@ Enforced by `paths.ts` on create, rename, and move:
   segments, control characters, and Windows-reserved stems (`CON`, `PRN`, …).
 - Slugify: trim, collapse whitespace to `-`, strip `/\:*?"<>|`.
 - Max 200 bytes per segment, max 400 bytes total.
-- Notes must end in `.md`. Creating a note at an existing path is refused.
+- Notes must end in `.md` (plain) or `.md.enc` (encrypted). Creating a note at
+  either form of an existing path is refused: `a.md` and `a.md.enc` are the same
+  note in two states and must never coexist.
 
 **Rename/move** is a delete + create pair (two commits) because the Contents API
 is single-file. `paths.ts` produces the plan, `queue.ts` executes create-then-
@@ -238,9 +250,14 @@ The derived key exists only in a module-scoped variable inside `session.ts`. It
 is never written to storage, never passed to UI components, and is dropped on
 lock. Passphrase minimum 10 characters with a strength meter.
 
-**There is no passphrase recovery.** Forgetting it costs only the stored token —
-the notes are safe in GitHub. Recovery is: re-enter a PAT, choose a new
-passphrase. This is stated plainly during setup.
+**There is no passphrase recovery** — *while no note is encrypted*. Forgetting
+it then costs only the stored token; the notes are safe in GitHub, and recovery
+is simply: re-enter a PAT, choose a new passphrase. This is stated plainly
+during setup.
+
+The moment the user encrypts their first note this stops being true, because a
+forgotten passphrase would then destroy data. §9.3 therefore requires a recovery
+key before the first encryption can complete.
 
 ### 5.3 Session lifecycle
 
@@ -270,6 +287,10 @@ IndexedDB database `topazius`, version 1.
 Disk-resident notes are unreadable without the passphrase — the encryption
 covers the cache, not just the token. `config` is deliberately plaintext so the
 setup screen can show which repo is configured while locked.
+
+When encryption is in use, the unwrapped Vault Master Key (§9.2) lives in
+`session.ts` memory alongside the session key and is **never** written to
+IndexedDB. Its wrapped copies live in the repo, not on the device.
 
 The search index and backlink graph are **not persisted**; they are rebuilt in
 memory at unlock (milliseconds at personal-vault scale) which avoids a second
@@ -308,6 +329,9 @@ for free.
 | `404` | Repo/branch misconfigured → setup screen |
 | `422` | Invalid path or oversized content → actionable error |
 | Network failure | Stay queued, flip to offline, retry with backoff |
+
+For encrypted notes, sealing (§9.4) happens before the payload is enqueued, so
+plaintext never enters the write queue or an outbound request.
 
 Commit messages: `Update work/standup.md`, `Create recipes/pizza.md`,
 `Delete inbox/old.md`, `Add image assets/2026/08/pic-a1b2.png`.
@@ -373,6 +397,11 @@ leading slash**, which is the form Obsidian and GitHub's own markdown renderer
 both resolve. Reject above 5MB post-compression with a clear message. Identical
 content hashes are deduplicated to the existing asset.
 
+An image pasted into an **encrypted** note inherits that state: it is sealed
+with the same construction as a note (§9.4, AAD bound to the asset path) and
+stored as `<slug>-<hash8>.<ext>.enc`. The resolver below decrypts it
+transparently, so nothing in the rendering path changes.
+
 **Display:** the vault is private, so `raw.githubusercontent.com` URLs will not
 load in an `<img>` tag — they require an `Authorization` header. The renderer
 therefore rewrites relative image sources: render a sized placeholder, fetch the
@@ -386,9 +415,176 @@ placeholder naming the missing path rather than failing silently.
 
 ---
 
-## 9. Security
+## 9. Optional note encryption
 
-### 9.1 Content Security Policy
+Encryption is **off by default and opt-in per note**. A plain note is an
+ordinary `.md` file, exactly as §4.2 describes. An encrypted note is the same
+content sealed into a `.md.enc` file that only this app — holding the passphrase
+or the recovery key — can read.
+
+### 9.1 Threat model
+
+**Protects against:** anyone who gains read access to the repository itself — a
+leaked or stolen GitHub session, a repo accidentally flipped to public, a
+compromised third-party GitHub App with repo scope, GitHub staff, or a subpoena
+served on GitHub.
+
+**Does not protect against:** a compromised browser or device while the vault is
+unlocked, a keylogger capturing the passphrase, or metadata analysis (§9.6).
+
+Plain notes are unaffected by this feature; their confidentiality continues to
+rest on the repository being private (§10.6).
+
+### 9.2 Key hierarchy
+
+```
+passphrase ───PBKDF2-SHA256(600k, salt_p)──▶ KEK_p ──┐
+                                                      ├──▶ wrap(VMK) ──▶ .topazius/vault.json
+recovery key ─PBKDF2-SHA256(600k, salt_r)──▶ KEK_r ──┘
+
+VMK  (random 256-bit, generated once)  ──AES-256-GCM──▶  note ciphertext
+```
+
+The **Vault Master Key** is random, generated once when the user encrypts their
+first note, and never leaves the browser unwrapped. It is stored twice in
+`.topazius/vault.json`, wrapped under two independent key-encryption keys: one
+derived from the passphrase, one from a recovery key.
+
+This indirection buys three properties:
+
+- **Changing the passphrase** rewraps one ~400-byte file. Notes are untouched.
+- **A new device** needs only the repo, a PAT, and the passphrase.
+- **A forgotten passphrase** is survivable, via the recovery key.
+
+```json
+{
+  "v": 1,
+  "kdf": { "name": "PBKDF2-SHA256", "iterations": 600000 },
+  "cipher": "AES-256-GCM",
+  "wraps": [
+    { "id": "passphrase", "salt": "<b64>", "iv": "<b64>", "ct": "<b64>" },
+    { "id": "recovery",   "salt": "<b64>", "iv": "<b64>", "ct": "<b64>" }
+  ]
+}
+```
+
+Unlock tries each wrap in turn; AES-GCM's authentication tag makes a wrong key
+fail closed, so no separate verifier is stored. An attacker with repo *write*
+access can replace this file but cannot forge a wrap without a valid key —
+substitution makes decryption fail loudly rather than silently yielding
+attacker-chosen plaintext.
+
+### 9.3 Recovery key — mandatory
+
+The first time a note is encrypted, the app generates a 128-bit recovery key,
+renders it as 26 Crockford base32 characters in groups of four, and requires the
+user to confirm they have stored it before the encryption completes. It is shown
+exactly once. It can be regenerated later from an unlocked vault, which rewraps
+the recovery slot and invalidates the previous key.
+
+This is not optional and not skippable. Without it, §5.2's "forgetting your
+passphrase costs only the token" silently becomes "forgetting your passphrase
+destroys your notes" — not an acceptable failure mode for a notes app.
+
+### 9.4 File format
+
+An encrypted note is UTF-8 text, so GitHub's web UI renders it as a file rather
+than an opaque binary blob, and anyone who stumbles across it learns what it is:
+
+```
+# topazius-encrypted v1
+# https://github.com/<user>/topazius — needs your passphrase or recovery key
+TPZ1.<base64url iv>.<base64url ciphertext‖tag>
+```
+
+- **Cipher:** AES-256-GCM with a fresh random 96-bit IV per save.
+- **AAD:** the literal `TPZ1` concatenated with the note's vault-relative path.
+
+Binding the path as additional authenticated data means ciphertext cannot be
+relocated: an attacker with write access cannot move
+`journal/private.md.enc` to `inbox/note.md.enc` and have it decrypt. The
+consequence is that **renaming an encrypted note re-seals it** under the new
+path, handled inside the existing rename plan (§4.3).
+
+The plaintext sealed inside is the note's exact bytes, frontmatter included, so
+the lossless round-trip guarantee of §4.2 holds unchanged.
+
+### 9.5 Per-note state, per-folder defaults
+
+A note's encryption state is a property of the note, carried by its extension:
+`.md` is plain, `.md.enc` is encrypted. Nothing else determines it. **Moving a
+note between folders never changes its state** — there is no implicit,
+invisible re-encryption to reason about.
+
+Because toggling every note by hand is tedious, folders may carry a **default**
+for newly created notes:
+
+```json
+{ "defaults": { "journal/": "encrypted", "work/private/": "encrypted" } }
+```
+
+Defaults apply only at creation time and are advisory: they never encrypt or
+decrypt an existing note. The most specific matching prefix wins; unmatched
+folders default to plain.
+
+**Toggling** a note reuses the §4.3 rename machinery — write the new path, then
+delete the old. Wikilink targets resolve on the stem, ignoring `.md`/`.md.enc`,
+so toggling never breaks inbound links and no link rewriting is needed.
+
+**Bulk actions** — "encrypt every note in this folder", "decrypt this folder" —
+are available from the tree context menu and run as a resumable batch through
+the write queue, with progress and an explicit report of any failures. This
+delivers whole-vault and per-folder behaviour on demand without making either a
+standing rule.
+
+### 9.6 What still leaks
+
+Stated plainly in the README, and in the UI the first time a user encrypts a
+note:
+
+| Visible to anyone with repo access | Hidden |
+|---|---|
+| File and folder names — including any title embedded in a filename | All note content |
+| Which notes are encrypted, and how many | Frontmatter, tags, wikilinks, body |
+| Approximate size of each note | Everything above, for every encrypted note |
+| Commit timestamps, so edit frequency and activity patterns | |
+
+Guidance shown alongside this table: keep sensitive detail out of filenames —
+`journal/2026-08-27.md.enc`, not `journal/therapy-session.md.enc`.
+
+### 9.7 Interaction with the rest of the system
+
+| Area | Behaviour |
+|---|---|
+| **Search** | Unaffected. The vault is decrypted into memory at unlock, so encrypted notes are fully searchable. |
+| **Tags, backlinks** | Unaffected, for the same reason. |
+| **Conflicts** | SHA comparison happens on ciphertext, so detection is unchanged. Resolution decrypts both sides, merges in plaintext, then re-seals. The dialog never displays ciphertext. |
+| **Offline queue** | Sealing happens before enqueue, so queued payloads are ciphertext at rest. |
+| **Images** | An image inherits the state of the note it is pasted into (§8.3). |
+| **Toggling a note to encrypted** | Assets referenced *only* by that note are offered for sealing in the same batch. Assets also referenced by plain notes are left alone, with a warning naming them. |
+| **Git storage** | Ciphertext does not delta-compress, so each save of an encrypted note stores a full blob. At personal-vault sizes with 10s save debouncing this is negligible, and per-note opt-in confines the cost to the notes that need it. |
+| **Local cache** | Already encrypted at rest under the session key (§6), independently of this feature. |
+| **Obsidian and vim** | Plain notes open normally. Encrypted notes appear as `.md.enc` files these tools cannot read — the accepted cost, incurred only on the notes the user chose. |
+
+### 9.8 Failure handling
+
+- **Wrong passphrase and wrong recovery key** — unlock is refused, nothing is
+  written, the vault stays sealed.
+- **A single note fails to decrypt** (corrupted blob, hand-edited file) — that
+  note renders an error card offering "view raw" and "open history on GitHub",
+  and the rest of the vault opens normally. One bad file never blocks the vault.
+- **`.topazius/vault.json` missing while `.md.enc` files exist** — the app
+  refuses to guess, explains that the key file is gone, and points at that
+  file's git history, which is where it can be recovered.
+- **A toggle batch is interrupted** — the queue is durable and resumable, and
+  create-then-delete ordering means an interrupted toggle leaves both copies,
+  never neither.
+
+---
+
+## 10. Security
+
+### 10.1 Content Security Policy
 
 ```
 default-src 'none';
@@ -406,46 +602,50 @@ frame-ancestors 'none';
 blocked by the browser even if a dependency were compromised. `'unsafe-inline'`
 is required for styles only; scripts are strictly same-origin and bundled.
 
-### 9.2 Token handling
+### 10.2 Token handling
 
 Never placed in a URL, query string, `localStorage` plaintext, log line, or
 error message. `github.ts` redacts `Authorization` from any thrown error. The
 token is read from the session key holder at request time and never copied into
 component state.
 
-### 9.3 Service worker
+### 10.3 Service worker
 
 Precaches the **app shell only**. It must never cache `api.github.com`
 responses — doing so would write plaintext note content to disk outside the
 encrypted store. This is enforced by an explicit origin check in the fetch
 handler and covered by a test.
 
-### 9.4 XSS surface
+### 10.4 XSS surface
 
 Note content is attacker-controllable in the sense that a user may paste
 arbitrary markdown. Every render path goes through DOMPurify (§8.2). Wikilink
 and tag rendering builds DOM nodes programmatically rather than by string
 concatenation.
 
-### 9.5 Dependency posture
+### 10.5 Dependency posture
 
 Small, well-known dependency set; all bundled at build time. `npm audit` runs in
 CI. No postinstall scripts permitted (`npm ci --ignore-scripts` in CI).
 
-### 9.6 Stated trade-off
+### 10.6 Stated trade-off
 
-**Notes are stored unencrypted in the private repository.** This is deliberate:
-encrypting them would break Obsidian, `git diff`, and grep, destroying the
-portability that motivates the design. Confidentiality rests on GitHub's private
-repo access control. The *local* cache is encrypted, so a stolen laptop does not
-expose the vault. This trade-off is documented in the README so no user is
-surprised by it.
+**Plain notes are stored unencrypted in the private repository.** That is the
+default and it is deliberate: encrypting everything by force would break
+Obsidian, `git diff`, and grep, destroying the portability that motivates the
+whole design. For plain notes, confidentiality rests on GitHub's private-repo
+access control.
+
+Notes that need more can be sealed individually (§9), at the cost of being
+readable only through this app. The *local* cache is encrypted either way, so a
+stolen laptop never exposes the vault. Both trade-offs are documented in the
+README so no user is surprised by either.
 
 ---
 
-## 10. User interface
+## 11. User interface
 
-### 10.1 Layout
+### 11.1 Layout
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -456,28 +656,35 @@ surprised by it.
 │   standup.md │  - shipped the thing     │  Monday       │
 │   roadmap.md │  - see [[work/roadmap]]  │  • shipped …  │
 │ ▸ recipes    │                          │               │
+│ ▾ journal    │                          │               │
+│   aug27 [enc]│                          │               │
 ├──────────────┤                          ├───────────────┤
 │ #work #idea  │                          │ Backlinks (2) │
 └──────────────┴──────────────────────────┴───────────────┘
 ```
 
+Encrypted notes carry an `[enc]` badge in the tree and a lock in the editor
+header, and the palette offers an **Encrypted** filter listing every sealed note
+in the vault — so "which notes are protected?" is always one keystroke from an
+answer, never a guess.
+
 Left: folder tree (collapsible, drag to move, context menu for
-new/rename/delete) with a tag filter bar beneath it. Center: editor. Right:
+new/rename/delete/encrypt) with a tag filter bar beneath it. Center: editor. Right:
 preview and backlinks, collapsible.
 
-### 10.2 Command palette (⌘K)
+### 11.2 Command palette (⌘K)
 
 Single entry point: fuzzy quick-open by path, full-text search across note
 bodies, and actions (new note, new folder, toggle preview, lock, settings).
 Results are grouped and keyboard-navigable.
 
-### 10.3 Search
+### 11.3 Search
 
 MiniSearch over `{ path, title, tags, body }` with prefix and fuzzy matching,
 title and tag fields boosted. Results show a highlighted snippet. Index is built
 at unlock and updated incrementally on each local save.
 
-### 10.4 Mobile and PWA
+### 11.4 Mobile and PWA
 
 Below 768px the three panes collapse to one with a bottom tab bar
 (Files / Edit / Preview). Tap targets ≥44px. The editor keeps the toolbar above
@@ -485,14 +692,14 @@ the soft keyboard using `visualViewport`. A web app manifest plus the app-shell
 service worker make it installable to the home screen; cached notes are readable
 offline and edits queue until reconnect.
 
-### 10.5 Accessibility
+### 11.5 Accessibility
 
 Tree implements `role="tree"`/`treeitem` with full arrow-key navigation. Dialogs
 trap focus and restore it on close. All controls reachable by keyboard and
 labelled. Contrast meets WCAG AA in both light and dark themes.
 `prefers-reduced-motion` and `prefers-color-scheme` respected.
 
-### 10.6 Onboarding
+### 11.6 Onboarding
 
 1. **Welcome** — what this is, what it will ask for, the one-time cost.
 2. **Create the vault** — link to GitHub's "new repository" page with the
@@ -501,9 +708,13 @@ labelled. Contrast meets WCAG AA in both light and dark themes.
 4. **Passphrase** — set it, with the no-recovery warning stated plainly.
 5. **Seed** — offer to create a `welcome.md` explaining the vault layout.
 
+Encryption is deliberately absent from onboarding. It is introduced in context,
+the first time the user clicks the lock on a note, together with the
+recovery-key ceremony (§9.3) and the leakage table (§9.6).
+
 ---
 
-## 11. GitHub Actions
+## 12. GitHub Actions
 
 ### `.github/workflows/ci.yml`
 On push and pull request: Node 24, `npm ci --ignore-scripts`, `tsc --noEmit`,
@@ -524,7 +735,7 @@ and Pages (source: GitHub Actions) must both be enabled once after forking.
 
 ---
 
-## 12. Error handling
+## 13. Error handling
 
 Every failure is surfaced with what happened, what it means, and the next
 action — never a raw status code. Errors are non-blocking toasts except those
@@ -532,7 +743,7 @@ that require a decision (conflict, expired token), which are modal. Nothing is
 silently swallowed: a failed write stays `dirty` and queued, and the status chip
 reflects it until resolved.
 
-## 13. Testing
+## 14. Testing
 
 **Vitest** with `fake-indexeddb` and **msw** mocking `api.github.com`. Logic
 lives in `lib/` precisely so it is testable without a browser.
@@ -545,6 +756,8 @@ lives in `lib/` precisely so it is testable without a browser.
 | `sync` | tree diff fetches only changed SHAs; truncated-tree fallback |
 | `queue` | ordering per path, backoff, persistence across reload, offline flush |
 | `conflict` | 409 detection; all three resolution outcomes write the correct SHA |
+| `vaultkey` | VMK wrap/unwrap under both slots; wrong passphrase and wrong recovery key each fail closed; passphrase change rewraps without touching note ciphertext |
+| `noteenc` | seal/open round-trips byte-identically; AAD binding rejects ciphertext moved to another path; plain↔encrypted toggle preserves content and inbound wikilinks; one corrupt note does not block vault unlock |
 | `markdown` | XSS corpus is neutralized; link protocol allowlist; `rel` enforcement |
 | `images` | downscale thresholds, hash dedup, size rejection |
 | `search`/`links`/`tags` | indexing, incremental update, wikilink resolution, inline-tag edge cases (code fences, headings) |
@@ -552,7 +765,7 @@ lives in `lib/` precisely so it is testable without a browser.
 
 Development follows TDD: failing test first, then implementation.
 
-## 14. Performance targets
+## 15. Performance targets
 
 | Metric | Target |
 |---|---|
@@ -562,7 +775,7 @@ Development follows TDD: failing test first, then implementation.
 | Search query → results, 500 notes | < 50ms |
 | Initial JS bundle | < 250KB gzipped |
 
-## 15. Implementation phases
+## 16. Implementation phases
 
 Sequenced so each phase is independently verifiable.
 
@@ -575,6 +788,8 @@ Sequenced so each phase is independently verifiable.
 7. **Conflicts and offline** — 409 flow, resolution UI, queue persistence.
 8. **Notes lifecycle** — create, rename, move, delete, wikilink rewriting.
 9. **Images** — paste/drop, downscale, upload, blob-URL resolver.
-10. **Search, tags, backlinks** — index, palette, tag filter, backlink panel.
-11. **Mobile and PWA** — responsive layout, manifest, service worker.
-12. **Polish** — accessibility pass, error copy, README and fork instructions.
+10. **Optional encryption** — vault key and recovery key, seal/open, per-note
+    toggle, folder defaults, bulk batches, encrypted assets.
+11. **Search, tags, backlinks** — index, palette, tag filter, backlink panel.
+12. **Mobile and PWA** — responsive layout, manifest, service worker.
+13. **Polish** — accessibility pass, error copy, README and fork instructions.
