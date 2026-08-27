@@ -145,10 +145,17 @@ export function createSession(deps: SessionDeps): Session {
       const plaintext = await decrypt(derived, { iv: stored.iv, ct: stored.ct });
 
       // A lock() or logout() ran while this was in flight — do not resurrect it.
-      if (mine !== epoch) return;
+      if (mine !== epoch) {
+        plaintext.fill(0);
+        return;
+      }
 
       key = derived;
       token = new TextDecoder().decode(plaintext);
+      // The string above is the copy that matters; zero the bytes it was
+      // decoded from so the decrypted token doesn't linger in this
+      // Uint8Array any longer than it has to.
+      plaintext.fill(0);
       hasSecret = true;
       armTimer();
       notify();

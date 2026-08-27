@@ -1,4 +1,4 @@
-import { isEncryptedPath } from './paths';
+import { isEncryptedPath, noteStem } from './paths';
 
 export interface TreeNode {
   /** Display name: the final segment, with .md or .md.enc stripped for notes. */
@@ -45,7 +45,7 @@ export function buildTree(paths: string[]): TreeNode[] {
     }
 
     siblings.push({
-      name: fileName.replace(/\.md(\.enc)?$/, ''),
+      name: noteStem(fileName),
       path,
       kind: 'note',
       encrypted: isEncryptedPath(path),

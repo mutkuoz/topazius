@@ -6,7 +6,8 @@ export const DB_VERSION = 1;
 
 export type AppConfig = VaultConfig & { prefs: Record<string, unknown> };
 
-interface QueueItem {
+/** Populated in plan 2; exported now so its write queue can build on this shape. */
+export interface QueueItem {
   id?: number;
   op: 'put' | 'delete';
   path: string;

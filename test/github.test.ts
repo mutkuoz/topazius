@@ -98,6 +98,37 @@ describe('error handling', () => {
     expect(serialised).not.toContain(TOKEN);
     expect(serialised).not.toContain('supersecret');
   });
+
+  it('carries rate-limit details from the response headers, when present', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes', () =>
+        HttpResponse.json(
+          { message: 'API rate limit exceeded' },
+          { status: 403, headers: { 'x-ratelimit-remaining': '0', 'retry-after': '30' } },
+        ),
+      ),
+    );
+
+    const error = (await client()
+      .getRepo()
+      .catch((e: unknown) => e)) as GitHubError;
+    expect(error.rateLimitRemaining).toBe(0);
+    expect(error.retryAfter).toBe(30);
+  });
+
+  it('leaves rate-limit details undefined when the headers are absent', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes', () =>
+        HttpResponse.json({ message: 'Not Found' }, { status: 404 }),
+      ),
+    );
+
+    const error = (await client()
+      .getRepo()
+      .catch((e: unknown) => e)) as GitHubError;
+    expect(error.rateLimitRemaining).toBeUndefined();
+    expect(error.retryAfter).toBeUndefined();
+  });
 });
 
 describe('getTree', () => {
@@ -141,6 +172,43 @@ describe('getTree', () => {
           truncated: false,
           tree: [{ path: 'nested.md', type: 'blob', sha: 'sha-nested', size: 2 }],
         });
+      }),
+    );
+
+    expect((await client().getTree('main')).map((e) => e.path).sort()).toEqual([
+      'root.md',
+      'work/nested.md',
+    ]);
+  });
+
+  it('skips reserved directories during the fallback walk, never fetching them', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/git/trees/:ref', ({ params, request }) => {
+        const recursive = new URL(request.url).searchParams.get('recursive');
+        if (params.ref === 'main' && recursive) {
+          return HttpResponse.json({ truncated: true, tree: [] });
+        }
+        if (params.ref === 'main') {
+          return HttpResponse.json({
+            truncated: false,
+            tree: [
+              { path: 'root.md', type: 'blob', sha: 'sha-root', size: 1 },
+              { path: 'work', type: 'tree', sha: 'sha-work' },
+              { path: 'assets', type: 'tree', sha: 'sha-assets' },
+              { path: '.topazius', type: 'tree', sha: 'sha-topazius' },
+            ],
+          });
+        }
+        if (params.ref === 'sha-work') {
+          return HttpResponse.json({
+            truncated: false,
+            tree: [{ path: 'nested.md', type: 'blob', sha: 'sha-nested', size: 2 }],
+          });
+        }
+        // No handler registered for sha-assets or sha-topazius: if walk()
+        // ever descends into them, onUnhandledRequest: 'error' (see
+        // beforeAll) fails this test loudly.
+        throw new Error(`unexpected tree fetch for ref ${String(params.ref)}`);
       }),
     );
 

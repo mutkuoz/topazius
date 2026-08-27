@@ -1,11 +1,7 @@
 {
   "name": "topazius",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "description": "A browser-only markdown notes app with no backend, storing notes as files in a private GitHub repository you own.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -20,7 +16,6 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
   "type": "module",
   "private": true,
   "bugs": {
@@ -28,7 +23,6 @@
   },
   "homepage": "https://github.com/mutkuoz/topazius#readme",
   "dependencies": {
-    "@preact/signals": "^2.11.1",
     "idb": "^8.0.3",
     "preact": "^10.29.8"
   },

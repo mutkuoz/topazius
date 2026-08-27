@@ -1,12 +1,25 @@
+import { isReservedPath } from './paths';
+
 const API = 'https://api.github.com';
+
+export interface GitHubErrorDetails {
+  /** From the x-ratelimit-remaining response header, when present. */
+  rateLimitRemaining?: number;
+  /** From the Retry-After response header (seconds), when present. */
+  retryAfter?: number;
+}
 
 export class GitHubError extends Error {
   readonly status: number;
+  readonly rateLimitRemaining?: number;
+  readonly retryAfter?: number;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: GitHubErrorDetails) {
     super(message);
     this.name = 'GitHubError';
     this.status = status;
+    this.rateLimitRemaining = details?.rateLimitRemaining;
+    this.retryAfter = details?.retryAfter;
   }
 }
 
@@ -55,6 +68,12 @@ export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+function parseHeaderInt(value: string | null): number | undefined {
+  if (value === null) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 export function createClient(options: GitHubClientOptions): GitHubClient {
   const base = `${API}/repos/${options.owner}/${options.repo}`;
 
@@ -79,7 +98,10 @@ export function createClient(options: GitHubClientOptions): GitHubClient {
         .json()
         .then((b: unknown) => (b as { message?: string })?.message)
         .catch(() => undefined);
-      throw new GitHubError(response.status, message ?? `GitHub returned ${response.status}.`);
+      throw new GitHubError(response.status, message ?? `GitHub returned ${response.status}.`, {
+        rateLimitRemaining: parseHeaderInt(response.headers.get('x-ratelimit-remaining')),
+        retryAfter: parseHeaderInt(response.headers.get('retry-after')),
+      });
     }
 
     return response;
@@ -98,7 +120,10 @@ export function createClient(options: GitHubClientOptions): GitHubClient {
     }>;
   }
 
-  /** Very large vaults truncate the recursive tree; fall back to a breadth-first walk. */
+  /**
+   * Very large vaults truncate the recursive tree; fall back to a sequential
+   * depth-first walk, one directory fetched at a time.
+   */
   async function walk(ref: string, prefix: string): Promise<TreeEntry[]> {
     const { tree } = await readTree(ref, false);
     const entries: TreeEntry[] = [];
@@ -108,6 +133,11 @@ export function createClient(options: GitHubClientOptions): GitHubClient {
       if (node.type === 'blob') {
         entries.push({ path, sha: node.sha, size: node.size ?? 0 });
       } else if (node.type === 'tree') {
+        // assets/ and .topazius/ are reserved and hidden from the note
+        // tree (sync.ts filters them too); skip descending into them here
+        // so a large assets/ folder doesn't cost extra requests for
+        // nothing.
+        if (isReservedPath(`${path}/`)) continue;
         entries.push(...(await walk(node.sha, path)));
       }
     }

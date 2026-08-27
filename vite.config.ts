@@ -22,10 +22,20 @@ function csp(): Plugin {
       order: 'post',
       handler(html, ctx) {
         if (!ctx.bundle) return html; // dev server: skip, HMR needs inline + ws
-        return html.replace(
+        // String.replace() on a literal that isn't found just returns the
+        // input unchanged - if index.html's <head> ever gains an attribute,
+        // this would silently stop injecting the CSP with a green build.
+        // Throw instead so that failure is loud.
+        const injected = html.replace(
           '<head>',
           `<head>\n    <meta http-equiv="Content-Security-Policy" content="${CSP}">`,
         );
+        if (injected === html) {
+          throw new Error(
+            'topazius-csp: could not find a literal "<head>" tag in index.html; the CSP meta tag was not injected.',
+          );
+        }
+        return injected;
       },
     },
   };
