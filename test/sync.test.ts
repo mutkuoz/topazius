@@ -4,6 +4,7 @@ import { SALT_BYTES, deriveKey, randomBytes } from '../src/lib/crypto';
 import { type TopaziusDB, allNotes, destroyVaultDB, openVaultDB, writeNote } from '../src/lib/db';
 import { GitHubError, type TreeEntry } from '../src/lib/github';
 import { loadVault, readNoteText } from '../src/lib/sync';
+import { stubClient } from './helpers';
 
 let db: IDBPDatabase<TopaziusDB>;
 let key: CryptoKey;
@@ -19,34 +20,30 @@ afterEach(async () => {
 });
 
 function fakeGitHub(tree: TreeEntry[], blobs: Record<string, string>) {
-  return {
-    getRepo: vi.fn(),
+  return stubClient({
     getTree: vi.fn(async () => tree),
     getBlob: vi.fn(async (sha: string) => new TextEncoder().encode(blobs[sha] ?? '')),
-  };
+  });
 }
 
 /** A GitHubClient whose getBlob() rejects for one specific sha. */
 function fakeGitHubWithFailingBlob(tree: TreeEntry[], blobs: Record<string, string>, failingSha: string) {
-  return {
-    getRepo: vi.fn(),
+  return stubClient({
     getTree: vi.fn(async () => tree),
     getBlob: vi.fn(async (sha: string) => {
       if (sha === failingSha) throw new Error('network hiccup');
       return new TextEncoder().encode(blobs[sha] ?? '');
     }),
-  };
+  });
 }
 
 /** A GitHubClient whose getTree() always rejects. */
 function fakeGitHubWithFailingTree(error: unknown = new Error('offline')) {
-  return {
-    getRepo: vi.fn(),
-    getTree: vi.fn(async () => {
+  return stubClient({
+    getTree: vi.fn(async (): Promise<never> => {
       throw error;
     }),
-    getBlob: vi.fn(),
-  };
+  });
 }
 
 describe('loadVault', () => {
@@ -219,13 +216,12 @@ describe('loadVault', () => {
     });
 
     it('re-throws a 401 from getBlob() instead of folding it into failures', async () => {
-      const gh = {
-        getRepo: vi.fn(),
+      const gh = stubClient({
         getTree: vi.fn(async () => [{ path: 'a.md', sha: 'sha-a', size: 1 }]),
-        getBlob: vi.fn(async () => {
+        getBlob: vi.fn(async (): Promise<never> => {
           throw new GitHubError(401, 'Bad credentials');
         }),
-      };
+      });
 
       await expect(loadVault({ gh, db, key, branch: 'main' })).rejects.toMatchObject({ status: 401 });
     });

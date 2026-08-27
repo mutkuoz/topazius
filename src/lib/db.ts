@@ -6,12 +6,21 @@ export const DB_VERSION = 1;
 
 export type AppConfig = VaultConfig & { prefs: Record<string, unknown> };
 
-/** Populated in plan 2; exported now so its write queue can build on this shape. */
+/** One pending remote write. Content is never stored here - see queue.ts's `resolve`. */
 export interface QueueItem {
   id?: number;
   op: 'put' | 'delete';
   path: string;
+  /**
+   * For a delete, the blob sha the removal is based on. Remembered on the item
+   * because the local note record - where the sha otherwise lives - is gone by
+   * the time this runs.
+   */
+  sha?: string;
   attempts: number;
+  lastError?: string;
+  /** Wall-clock time before which this item must not be retried (backoff). */
+  notBefore?: number;
 }
 
 export interface TopaziusDB extends DBSchema {
@@ -20,7 +29,6 @@ export interface TopaziusDB extends DBSchema {
   secret: { key: string; value: WrappedSecret };
   notes: { key: string; value: NoteRecord };
   assets: { key: string; value: AssetRecord };
-  /** Populated in plan 2; the store is created here so no migration is needed. */
   queue: { key: number; value: QueueItem };
 }
 
