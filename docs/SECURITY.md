@@ -17,13 +17,17 @@ That also means there is nobody to recover anything for you.
 |---|---|---|
 | Your GitHub token | IndexedDB, on your device | **Yes** — AES-256-GCM under a passphrase-derived key |
 | Cached note contents | IndexedDB, on your device | **Yes** — same key, with the note's path bound in |
+| Cached images | IndexedDB, on your device | **Yes** — same key, same path binding |
 | Repo/owner/branch config | IndexedDB, on your device | No — deliberately, see below |
-| Your notes | Your private GitHub repository | **No** — deliberately, see below |
+| Plain notes | Your private GitHub repository | **No** — deliberately, see below |
+| Notes you encrypted | Your private GitHub repository | **Yes** — AES-256-GCM under the vault key, see [Encrypted notes](#encrypted-notes) |
+| The wrapped vault key | `.topazius/vault.json` in your repository | It **is** the wrapped key: useless without your passphrase or recovery key |
 
 **Key derivation:** PBKDF2-SHA256, 600,000 iterations, a 16-byte random salt, producing a 256-bit
-AES-GCM key. The key is created non-extractable, so even code running on the page cannot read its
-raw bytes back out. It exists only in memory, is never written to storage, is never handed to a UI
-component, and is dropped when the vault locks.
+AES-GCM key. The session key — the one that protects your token and the local cache — is created
+non-extractable, so even code running on the page cannot read its raw bytes back out. It exists only
+in memory, is never written to storage, is never handed to a UI component, and is dropped when the
+vault locks.
 
 **Encryption:** AES-256-GCM with a fresh random 12-byte IV for every operation. Cached notes
 additionally bind the note's path as authenticated data, so a cached record cannot be swapped from
@@ -33,12 +37,61 @@ one path to another.
 has to do that while still locked. Knowing that a browser profile is configured for
 `you/my-notes` is not a meaningful disclosure to anyone who already has your device.
 
-**Why your notes are not encrypted in the repository.** This is the significant trade, and it is
-deliberate. Encrypting them would break Obsidian, `git diff`, `grep`, and every other tool that can
-open a folder of markdown — which is the property that makes the vault yours rather than ours. Their
-confidentiality rests on the repository being private. A later milestone adds *optional* per-note
-encryption for the notes that need more, at the cost of those notes being readable only through this
-app.
+**Why your notes are not encrypted in the repository by default.** This is the significant trade, and
+it is deliberate. Encrypting everything would break Obsidian, `git diff`, `grep`, and every other
+tool that can open a folder of markdown — which is the property that makes the vault yours rather
+than ours. The confidentiality of a plain note rests on the repository being private.
+
+Notes that need more can be sealed individually — see below — at the cost of being readable only
+through this app.
+
+## Encrypted notes
+
+Encryption is off by default and opt-in per note. A sealed note is stored as `<name>.md.enc`
+containing a header and one line of ciphertext.
+
+```
+passphrase ───PBKDF2-SHA256(600k, salt_p)──▶ KEK_p ──┐
+                                                      ├──▶ wrap(vault key) ──▶ .topazius/vault.json
+recovery key ─PBKDF2-SHA256(600k, salt_r)──▶ KEK_r ──┘
+
+vault key (random 256-bit, generated once) ──AES-256-GCM──▶ note ciphertext
+```
+
+- The **vault key** is random, generated the first time you encrypt something, and never leaves your
+  browser unwrapped. It is stored twice in `.topazius/vault.json`, wrapped under a key derived from
+  your passphrase and another derived from your recovery key. Two wraps, one key: changing either
+  secret rewraps a 400-byte file and touches no note.
+- **The recovery key is mandatory.** Before the first note can be encrypted the app generates one,
+  shows it once, and makes you confirm you have stored it. Without it, "forgetting your passphrase
+  costs only the token" would quietly become "forgetting your passphrase destroys your notes", and
+  that is not an acceptable failure mode for a notes app.
+- **Ciphertext is bound to its path.** The note's vault-relative path is authenticated data, so
+  someone with write access to your repository cannot move `journal/private.md.enc` to
+  `inbox/note.md.enc` and have it decrypt. Renaming a sealed note therefore re-seals it, which the
+  app does for you.
+- **Substitution fails loudly.** An attacker who replaces `.topazius/vault.json` cannot forge a wrap
+  without a valid key; unwrapping fails rather than yielding attacker-chosen plaintext.
+- **The vault key is extractable in memory**, unlike the session key, and deliberately so: rewrapping
+  it under a new recovery key means exporting it and sealing it again, which WebCrypto cannot do to a
+  non-extractable key. It still only ever exists in the same closure as your token, is never written
+  to storage in any form, and is dropped on lock. The alternative — a vault key that can never be
+  rewrapped — would mean no way to replace a recovery key you had lost track of.
+
+### What encryption does not hide
+
+| Visible to anyone with repository access | Hidden |
+|---|---|
+| File and folder names — including any title in a filename | All note content |
+| Which notes are encrypted, and how many | Frontmatter, tags, wikilinks, body |
+| Roughly how large each note is | |
+| Commit timestamps, so edit frequency and activity patterns | |
+
+Keep sensitive detail out of filenames: `journal/2026-08-27.md.enc`, not
+`journal/therapy-session.md.enc`. The app says this too, the first time you encrypt anything.
+
+Encrypted notes are decrypted into memory when you unlock, which is why search, tags and backlinks
+work on them normally. That memory is dropped on lock, like everything else.
 
 ## What an attacker gets
 
@@ -52,16 +105,33 @@ repository you use.
 **Someone with read access to your notes repository** — a leaked GitHub session, a repo accidentally
 made public, an over-scoped token, a compromised GitHub App:
 
-- They read **all of your notes**, because notes are stored as plain markdown.
+- They read **every plain note**, because plain notes are stored as plain markdown.
+- They get **nothing but ciphertext** from the notes you encrypted, plus the metadata in the table
+  above.
+- They get `.topazius/vault.json`, which is useless without your passphrase or recovery key.
 
-That is the whole answer, and it is why the private repo matters more than anything else in this
-document.
+For anything you have not encrypted, that is the whole answer, and it is why the private repo
+matters more than anything else in this document.
 
 **Someone who compromises GitHub Pages or the app fork.** They could serve modified JavaScript to
 you, which would defeat everything else here. Mitigations: the fork is yours, so an attacker needs
 your GitHub account to change it; and the shipped page carries a Content Security Policy that pins
 `connect-src` to `https://api.github.com`, so even injected code cannot exfiltrate to another host
 without also getting a new page past your browser.
+
+## The service worker
+
+The app installs a service worker so it can be installed to a home screen and read offline. It
+precaches the app's own files — the HTML, the JavaScript, the CSS, the icons — and **never** caches
+a response from `api.github.com`. Caching one would write note content to disk outside the encrypted
+store, in the clear, where nothing would ever remove it.
+
+That is not a convention. The worker's routing is a pure function with a test that drives the real
+fetch handler and asserts an API request is not even looked at: no cached lookup, no cached write,
+no interception at all.
+
+Your notes reach an offline device the other way: through the encrypted IndexedDB cache, which needs
+your passphrase.
 
 ## Network
 
@@ -73,6 +143,7 @@ This is enforced, not merely intended. The built page carries:
 ```
 default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';
 img-src 'self' blob: data:; connect-src https://api.github.com; font-src 'self';
+manifest-src 'self'; worker-src 'self';
 base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
@@ -103,12 +174,19 @@ and tells you why.
 
 Minimum 10 characters. A strength indicator is shown, but only the length is enforced.
 
-**There is no recovery.** No reset link, no backup key, no support address — there is nobody to ask.
-If you forget it, the encrypted token on that device is permanently unreadable, and you start over
-with a new token and a new passphrase. Your notes are unaffected: they live in GitHub.
+**While nothing is encrypted, there is no recovery and nothing to recover.** No reset link, no
+support address — there is nobody to ask. If you forget it, the encrypted token on that device is
+permanently unreadable, and you start over with a new token and a new passphrase. Your notes are
+unaffected: they live in GitHub.
 
-The passphrase is used only to derive a key. It is never stored, never transmitted, and never
-written to disk in any form.
+**Once you encrypt a note, your recovery key is the backstop.** It is generated and shown once,
+before the first note is sealed, and it opens the vault key independently of the passphrase. Store
+it somewhere other than the device you are typing the passphrase on. A new one can be issued from
+the palette at any time, which invalidates the previous one.
+
+The passphrase is used only to derive keys. It is never stored, never transmitted, and never written
+to disk in any form — including while the vault key is open: it is used during unlock and dropped
+before that call returns.
 
 ## Locking
 
@@ -119,7 +197,7 @@ The vault locks:
 - when you press **Lock**,
 - when GitHub rejects the token with a 401.
 
-Locking drops the key and the token from memory. The idle timer is backed by a wall-clock deadline
+Locking drops the session key, the vault key, and the token from memory. The idle timer is backed by a wall-clock deadline
 rather than a bare timer, because a browser that freezes a background tab, or a laptop that sleeps,
 will happily not run your timers — and an idle lock that silently fails to fire in exactly those
 cases would be worse than none.
