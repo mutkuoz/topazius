@@ -1,5 +1,5 @@
 import type { IDBPDatabase } from 'idb';
-import { useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { type TopaziusDB, writeConfig } from '../lib/db';
 import { GitHubError, createClient } from '../lib/github';
 import { MIN_PASSPHRASE_LENGTH, type Session } from '../lib/session';
@@ -81,6 +81,10 @@ export function Setup({ db, session, onDone }: SetupProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingSetup | null>(null);
+  // Bumped by resetValidation() so an edit made while a submit() is in flight can
+  // supersede it: submit() captures the generation before awaiting validateSetup and
+  // refuses to act on a stale result once it resolves.
+  const generation = useRef(0);
 
   async function persist(input: PendingSetup) {
     await writeConfig(db, {
@@ -95,6 +99,7 @@ export function Setup({ db, session, onDone }: SetupProps) {
 
   /** Any edit invalidates a pending, not-yet-persisted validation: only what is currently in the form may be enrolled. */
   function resetValidation() {
+    generation.current++;
     setError(null);
     setWarnings([]);
     setPending(null);
@@ -103,6 +108,7 @@ export function Setup({ db, session, onDone }: SetupProps) {
   async function submit(event: Event) {
     event.preventDefault();
     resetValidation();
+    const mine = generation.current;
 
     if (passphrase !== confirm) {
       setError('The two passphrases do not match.');
@@ -117,6 +123,9 @@ export function Setup({ db, session, onDone }: SetupProps) {
     try {
       const trimmed = { owner: owner.trim(), repo: repo.trim(), token: token.trim() };
       const result = await validateSetup(trimmed);
+      // The form was edited while this validation was in flight: its result no longer
+      // describes what is on screen, so it must not become pending or persist.
+      if (mine !== generation.current) return;
       if (result.warnings.length === 0) {
         await persist({ ...trimmed, branch: result.branch, passphrase });
       } else {
@@ -124,6 +133,7 @@ export function Setup({ db, session, onDone }: SetupProps) {
         setPending({ ...trimmed, branch: result.branch, passphrase });
       }
     } catch (cause) {
+      if (mine !== generation.current) return;
       setError(cause instanceof Error ? cause.message : 'Something went wrong.');
     } finally {
       setBusy(false);

@@ -202,4 +202,36 @@ describe('<Setup />', () => {
     expect(await readConfig(db)).toBeUndefined();
     expect(session.state()).not.toBe('unlocked');
   });
+
+  it('supersedes a validation that resolves after the form was edited mid-flight', async () => {
+    // Held open until releaseRepo() runs, so the edit below happens while validateSetup
+    // is still in flight rather than after it has already settled.
+    let releaseRepo: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseRepo = resolve;
+    });
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes', async () => {
+        await gate;
+        return HttpResponse.json({ default_branch: 'main', private: false, permissions: { push: true } });
+      }),
+    );
+    const session = createSession({ db });
+    const onDone = vi.fn();
+
+    render(<Setup db={db} session={session} onDone={onDone} />);
+    await fillForm('a good long passphrase');
+
+    // The request above is now held open by `gate`; edit the token while it is in flight.
+    await userEvent.setup().type(screen.getByLabelText(/access token/i), 'x');
+
+    releaseRepo();
+    await waitFor(() => expect(screen.getByRole('button', { name: /unlock vault/i })).not.toBeDisabled());
+
+    expect(screen.queryByRole('button', { name: /understand/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/public/i)).not.toBeInTheDocument();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(await readConfig(db)).toBeUndefined();
+    expect(session.state()).not.toBe('unlocked');
+  });
 });
