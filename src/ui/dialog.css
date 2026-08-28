@@ -1,0 +1,175 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 6vh 1rem 1rem;
+  background: rgb(0 0 0 / 35%);
+  overflow: auto;
+}
+
+.dialog {
+  width: min(34rem, 100%);
+  padding: 1.1rem 1.25rem 1.25rem;
+  border-radius: 12px;
+  background: var(--bg, #fff);
+  color: var(--fg, #16181d);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 30%);
+}
+
+.dialog-wide {
+  width: min(60rem, 100%);
+}
+
+.dialog-title {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.dialog .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.dialog label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-weight: 600;
+}
+
+.dialog label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+}
+
+.dialog input[type='text'],
+.dialog input[type='password'],
+.dialog input:not([type]),
+.dialog textarea {
+  font: inherit;
+  font-weight: 400;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border, #c9c9c9);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: inherit;
+}
+
+.dialog textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
+.dialog .row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.dialog button {
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--accent, #2f5bd7);
+  color: #fff;
+  cursor: pointer;
+}
+
+.dialog button.secondary {
+  background: transparent;
+  color: inherit;
+  border-color: var(--border, #c9c9c9);
+}
+
+.dialog button.danger {
+  background: #b3261e;
+  color: #fff;
+}
+
+.dialog button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.leakage {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.leakage caption {
+  text-align: start;
+  color: var(--muted, #6b6b6b);
+  padding-bottom: 0.3rem;
+}
+
+.leakage th,
+.leakage td {
+  border: 1px solid var(--border, #ddd);
+  padding: 0.3rem 0.45rem;
+  text-align: start;
+  vertical-align: top;
+}
+
+.recovery-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.06em;
+  padding: 0.7rem;
+  border: 1px dashed var(--border, #c9c9c9);
+  border-radius: 8px;
+  text-align: center;
+  word-break: break-all;
+}
+
+.diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.diff-pane h3 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b6b6b);
+  margin: 0 0 0.3rem;
+}
+
+.diff pre {
+  margin: 0;
+  max-height: 45vh;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.diff-added {
+  background: #e6f4ea;
+  color: #14532d;
+}
+
+.diff-removed {
+  background: #fdeaea;
+  color: #8a1c1c;
+}
+
+@media (max-width: 768px) {
+  .diff {
+    grid-template-columns: 1fr;
+  }
+}

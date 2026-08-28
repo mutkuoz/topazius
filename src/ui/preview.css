@@ -1,0 +1,82 @@
+.preview {
+  padding: 1rem 1.5rem 40vh;
+  max-width: 46rem;
+  margin: 0 auto;
+  overflow-wrap: break-word;
+}
+
+.preview h1 {
+  font-size: 1.6rem;
+}
+
+.preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.preview pre {
+  overflow-x: auto;
+  padding: 0.7rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--border, #ddd) 35%, transparent);
+}
+
+.preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.preview blockquote {
+  margin-inline: 0;
+  padding-inline-start: 0.9rem;
+  border-inline-start: 3px solid var(--border, #ddd);
+  color: var(--muted, #6b6b6b);
+}
+
+.preview table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.preview th,
+.preview td {
+  border: 1px solid var(--border, #ddd);
+  padding: 0.3rem 0.5rem;
+}
+
+.preview a {
+  color: var(--accent, #2f5bd7);
+}
+
+.preview .wikilink {
+  text-decoration: none;
+  border-bottom: 1px solid currentcolor;
+  cursor: pointer;
+}
+
+.preview .wikilink.missing {
+  color: var(--muted, #6b6b6b);
+  border-bottom-style: dashed;
+}
+
+.preview .tag {
+  color: var(--accent, #2f5bd7);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.preview .image-loading {
+  min-height: 2rem;
+  background: color-mix(in srgb, var(--border, #ddd) 40%, transparent);
+}
+
+.preview .image-missing {
+  display: inline-block;
+  padding: 0.3rem 0.5rem;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 6px;
+  color: var(--muted, #6b6b6b);
+  font-size: 0.85rem;
+}

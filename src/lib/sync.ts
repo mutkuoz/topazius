@@ -1,8 +1,9 @@
 import type { IDBPDatabase } from 'idb';
 import { BLOB_CONCURRENCY, mapWithConcurrency } from './concurrency';
-import { decrypt, encrypt } from './crypto';
+import { encrypt } from './crypto';
 import { type TopaziusDB, allNotes, deleteNote, readNote, writeNote } from './db';
-import { GitHubError, type GitHubClient } from './github';
+import { GitHubError, type GitHubClient, type TreeEntry } from './github';
+import { readFileText } from './notes';
 import { isNotePath, isReservedPath } from './paths';
 
 export interface LoadProgress {
@@ -28,6 +29,14 @@ export interface LoadFailure {
 export interface LoadResult {
   paths: string[];
   failures: LoadFailure[];
+  /**
+   * Everything under assets/, listed but deliberately not fetched: a vault's
+   * images can dwarf its prose, and the renderer only needs the ones a note
+   * actually shows (spec §8.3).
+   */
+  assets: TreeEntry[];
+  /** Everything under .topazius/ - today just the wrapped vault key (§9.2). */
+  meta: TreeEntry[];
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -51,17 +60,19 @@ function messageOf(error: unknown, fallback: string): string {
 export async function loadVault(deps: LoadDeps): Promise<LoadResult> {
   const failures: LoadFailure[] = [];
 
-  let entries: Array<{ path: string; sha: string; size: number }>;
+  let tree: TreeEntry[];
   try {
-    entries = (await deps.gh.getTree(deps.branch)).filter(
-      (entry) => isNotePath(entry.path) && !isReservedPath(entry.path),
-    );
+    tree = await deps.gh.getTree(deps.branch);
   } catch (error) {
     if (error instanceof GitHubError && error.status === 401) throw error;
     const cached = await allNotes(deps.db);
     failures.push({ path: '', error: messageOf(error, 'Could not load the file tree.') });
-    return { paths: cached.map((note) => note.path), failures };
+    return { paths: cached.map((note) => note.path), failures, assets: [], meta: [] };
   }
+
+  const entries = tree.filter((entry) => isNotePath(entry.path) && !isReservedPath(entry.path));
+  const assets = tree.filter((entry) => entry.path.startsWith('assets/'));
+  const meta = tree.filter((entry) => entry.path.startsWith('.topazius/'));
 
   const remotePaths = new Set(entries.map((entry) => entry.path));
   for (const cached of await allNotes(deps.db)) {
@@ -100,15 +111,17 @@ export async function loadVault(deps: LoadDeps): Promise<LoadResult> {
     deps.onProgress?.({ fetched, total: stale.length, path: entry.path });
   });
 
-  return { paths: entries.map((entry) => entry.path), failures };
+  return { paths: entries.map((entry) => entry.path), failures, assets, meta };
 }
 
-export async function readNoteText(
+/**
+ * The cached file, exactly as GitHub holds it. For an encrypted note that is
+ * the sealed text; notes.ts's readSource() is the one that unseals.
+ */
+export function readNoteText(
   db: IDBPDatabase<TopaziusDB>,
   key: CryptoKey,
   path: string,
 ): Promise<string> {
-  const record = await readNote(db, path);
-  if (!record) throw new Error(`Note "${path}" is not cached.`);
-  return new TextDecoder().decode(await decrypt(key, record.enc, new TextEncoder().encode(path)));
+  return readFileText({ db, key, vmk: null }, path);
 }

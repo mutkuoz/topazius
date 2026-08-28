@@ -1,6 +1,20 @@
 import type { IDBPDatabase } from 'idb';
 import { SALT_BYTES, decrypt, deriveKey, encrypt, randomBytes } from './crypto';
-import { type TopaziusDB, destroyVaultDB, readSecret, writeSecret } from './db';
+import {
+  type TopaziusDB,
+  destroyVaultDB,
+  readSecret,
+  readVaultKeyFile,
+  writeSecret,
+  writeVaultKeyFile,
+} from './db';
+import {
+  type VaultKeyFile,
+  createVaultKey,
+  generateRecoveryKey,
+  rewrap,
+  unwrapVaultKey,
+} from './vaultkey';
 
 export const MIN_PASSPHRASE_LENGTH = 10;
 export const SECRET_VERSION = 1;
@@ -20,6 +34,32 @@ export interface Session {
   lock(): void;
   getToken(): string;
   getKey(): CryptoKey;
+  /**
+   * The Vault Master Key, or null when this vault has no encrypted notes yet -
+   * or has them but has not been given the passphrase for the key file since
+   * this device last saw it. Lives here, next to the session key, and is never
+   * written to storage unwrapped (spec §6).
+   */
+  getVaultKey(): CryptoKey | null;
+  /**
+   * Create the vault key on first encryption: a fresh VMK wrapped under the
+   * passphrase and a new recovery key. Returns the file to commit and the
+   * recovery key to show exactly once (spec §9.3).
+   */
+  createVaultKey(passphrase: string): Promise<{ file: VaultKeyFile; recoveryKey: string }>;
+  /** Open an existing key file with the passphrase, or with the recovery key. */
+  openVaultKey(file: VaultKeyFile, secret: string, which: 'passphrase' | 'recovery'): Promise<void>;
+  /**
+   * True when this is the passphrase the enrolled token is sealed under.
+   *
+   * The encryption ceremony asks for the passphrase again and wraps the vault
+   * key under whatever is typed. Without this check a typo would produce a
+   * vault key that the passphrase cannot open - discovered on the next unlock,
+   * long after the recovery key has been put away.
+   */
+  verifyPassphrase(passphrase: string): Promise<boolean>;
+  /** Issue a new recovery key, invalidating the previous one (spec §9.3). */
+  regenerateRecoveryKey(file: VaultKeyFile): Promise<{ file: VaultKeyFile; recoveryKey: string }>;
   touch(): void;
   onChange(listener: () => void): () => void;
   /**
@@ -37,9 +77,11 @@ export interface Session {
 export function createSession(deps: SessionDeps): Session {
   const idleMs = (deps.idleMinutes ?? 15) * 60_000;
 
-  // The only place the key and token live. Never stored, never handed to the UI.
+  // The only place the keys and the token live. Never stored, never handed to
+  // the UI - components receive bound closures, not key material.
   let key: CryptoKey | null = null;
   let token: string | null = null;
+  let vmk: CryptoKey | null = null;
   let hasSecret: boolean | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   // Wall-clock deadline mirroring `timer`. A `setTimeout` fired late (a
@@ -84,9 +126,10 @@ export function createSession(deps: SessionDeps): Session {
   function lock() {
     epoch++;
     clearTimer();
-    if (key === null && token === null) return;
+    if (key === null && token === null && vmk === null) return;
     key = null;
     token = null;
+    vmk = null;
     notify();
   }
 
@@ -157,6 +200,21 @@ export function createSession(deps: SessionDeps): Session {
       // Uint8Array any longer than it has to.
       plaintext.fill(0);
       hasSecret = true;
+
+      // Open the vault key here, while the passphrase is in hand, so it is
+      // never held past this call. A cached key file that this passphrase
+      // does not open (it was rewrapped on another device) is not an error:
+      // vmk stays null and the UI asks for a secret when a sealed note is
+      // actually opened.
+      const cached = await readVaultKeyFile(deps.db);
+      if (cached && mine === epoch) {
+        try {
+          vmk = await unwrapVaultKey(cached, passphrase, 'passphrase');
+        } catch {
+          vmk = null;
+        }
+      }
+
       armTimer();
       notify();
     },
@@ -173,6 +231,51 @@ export function createSession(deps: SessionDeps): Session {
       checkIdle();
       if (key === null) throw new Error('Vault is locked.');
       return key;
+    },
+
+    getVaultKey() {
+      checkIdle();
+      return vmk;
+    },
+
+    async createVaultKey(passphrase) {
+      const mine = epoch;
+      const created = await createVaultKey(passphrase);
+      await writeVaultKeyFile(deps.db, created.file);
+      if (mine !== epoch) return { file: created.file, recoveryKey: created.recoveryKey };
+      vmk = created.vmk;
+      notify();
+      return { file: created.file, recoveryKey: created.recoveryKey };
+    },
+
+    async verifyPassphrase(passphrase) {
+      const stored = await readSecret(deps.db);
+      if (!stored) return false;
+      try {
+        const derived = await derive(passphrase, stored.salt);
+        // AES-GCM's tag is the verifier; a wrong passphrase throws here.
+        (await decrypt(derived, { iv: stored.iv, ct: stored.ct })).fill(0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
+    async openVaultKey(file, secret, which) {
+      const mine = epoch;
+      const opened = await unwrapVaultKey(file, secret, which);
+      await writeVaultKeyFile(deps.db, file);
+      if (mine !== epoch) return;
+      vmk = opened;
+      notify();
+    },
+
+    async regenerateRecoveryKey(file) {
+      if (vmk === null) throw new Error('Unlock the vault key before issuing a new recovery key.');
+      const recoveryKey = generateRecoveryKey();
+      const updated = await rewrap(file, vmk, 'recovery', recoveryKey);
+      await writeVaultKeyFile(deps.db, updated);
+      return { file: updated, recoveryKey };
     },
 
     touch() {
@@ -205,6 +308,7 @@ export function createSession(deps: SessionDeps): Session {
       clearTimer();
       key = null;
       token = null;
+      vmk = null;
       hasSecret = false;
       // IndexedDB's deleteDatabase() blocks until every open connection to it
       // closes; without this the still-open deps.db connection would leave

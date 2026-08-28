@@ -183,7 +183,12 @@ describe('getTree', () => {
     ]);
   });
 
-  it('skips reserved directories during the fallback walk, never fetching them', async () => {
+  it('walks assets/ but not .topazius/ during the fallback walk', async () => {
+    // assets/ is hidden from the note tree but its contents are exactly what
+    // the image resolver needs, so the walk must descend into it - the
+    // truncated-tree path is the one large vaults take, and images have to
+    // resolve there too. .topazius/ holds one file fetched by name, so
+    // walking it would buy nothing.
     server.use(
       http.get('https://api.github.com/repos/me/my-notes/git/trees/:ref', ({ params, request }) => {
         const recursive = new URL(request.url).searchParams.get('recursive');
@@ -207,14 +212,20 @@ describe('getTree', () => {
             tree: [{ path: 'nested.md', type: 'blob', sha: 'sha-nested', size: 2 }],
           });
         }
-        // No handler registered for sha-assets or sha-topazius: if walk()
-        // ever descends into them, onUnhandledRequest: 'error' (see
-        // beforeAll) fails this test loudly.
+        if (params.ref === 'sha-assets') {
+          return HttpResponse.json({
+            truncated: false,
+            tree: [{ path: 'pic-a1b2c3d4.png', type: 'blob', sha: 'sha-pic', size: 9 }],
+          });
+        }
+        // No handler for sha-topazius: descending into it would hit
+        // onUnhandledRequest: 'error' (see beforeAll) and fail loudly.
         throw new Error(`unexpected tree fetch for ref ${String(params.ref)}`);
       }),
     );
 
     expect((await client().getTree('main')).map((e) => e.path).sort()).toEqual([
+      'assets/pic-a1b2c3d4.png',
       'root.md',
       'work/nested.md',
     ]);
@@ -259,5 +270,149 @@ describe('getBlob', () => {
     );
 
     expect(await client().getBlob('sha-w')).toHaveLength(200);
+  });
+});
+
+describe('getFile', () => {
+  it('returns the blob bytes and sha for an existing file', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/contents/work/standup.md', ({ request }) => {
+        expect(new URL(request.url).searchParams.get('ref')).toBe('main');
+        return HttpResponse.json({
+          sha: 'abc123',
+          size: 7,
+          encoding: 'base64',
+          content: bytesToBase64(new TextEncoder().encode('# Hello')),
+        });
+      }),
+    );
+
+    const file = await client().getFile('work/standup.md', 'main');
+    expect(file?.sha).toBe('abc123');
+    expect(new TextDecoder().decode(file?.bytes)).toBe('# Hello');
+  });
+
+  it('returns null when the file does not exist', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/contents/gone.md', () =>
+        HttpResponse.json({ message: 'Not Found' }, { status: 404 }),
+      ),
+    );
+
+    expect(await client().getFile('gone.md', 'main')).toBeNull();
+  });
+
+  it('falls back to the blob endpoint when the contents API declines to inline the file', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/contents/big.md', () =>
+        // What GitHub returns above 1MB: the metadata, but no content.
+        HttpResponse.json({ sha: 'bigsha', size: 2_000_000, encoding: 'none', content: '' }),
+      ),
+      http.get('https://api.github.com/repos/me/my-notes/git/blobs/bigsha', () =>
+        HttpResponse.json({
+          encoding: 'base64',
+          content: bytesToBase64(new TextEncoder().encode('big note')),
+        }),
+      ),
+    );
+
+    const file = await client().getFile('big.md', 'main');
+    expect(new TextDecoder().decode(file?.bytes)).toBe('big note');
+  });
+
+  it('percent-encodes each path segment but keeps the separators', async () => {
+    server.use(
+      http.get('https://api.github.com/repos/me/my-notes/contents/a%20folder/note%23one.md', () =>
+        HttpResponse.json({ sha: 's', size: 1, encoding: 'base64', content: bytesToBase64(new Uint8Array([65])) }),
+      ),
+    );
+
+    expect((await client().getFile('a folder/note#one.md', 'main'))?.sha).toBe('s');
+  });
+});
+
+describe('putFile', () => {
+  it('sends base64 content, the branch, and the base sha for an update', async () => {
+    let body: Record<string, unknown> = {};
+    server.use(
+      http.put('https://api.github.com/repos/me/my-notes/contents/work/standup.md', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ content: { sha: 'newsha', size: 5 } });
+      }),
+    );
+
+    const result = await client().putFile({
+      path: 'work/standup.md',
+      bytes: new TextEncoder().encode('hello'),
+      message: 'Update work/standup.md',
+      branch: 'main',
+      sha: 'oldsha',
+    });
+
+    expect(result).toEqual({ sha: 'newsha', size: 5 });
+    expect(body).toMatchObject({
+      message: 'Update work/standup.md',
+      branch: 'main',
+      sha: 'oldsha',
+      content: bytesToBase64(new TextEncoder().encode('hello')),
+    });
+  });
+
+  it('omits sha entirely when creating a new file', async () => {
+    let body: Record<string, unknown> = {};
+    server.use(
+      http.put('https://api.github.com/repos/me/my-notes/contents/new.md', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ content: { sha: 'created', size: 2 } });
+      }),
+    );
+
+    await client().putFile({
+      path: 'new.md',
+      bytes: new TextEncoder().encode('hi'),
+      message: 'Create new.md',
+      branch: 'main',
+    });
+
+    expect('sha' in body).toBe(false);
+  });
+
+  it('surfaces a 409 as a GitHubError carrying the status', async () => {
+    server.use(
+      http.put('https://api.github.com/repos/me/my-notes/contents/note.md', () =>
+        HttpResponse.json({ message: 'note.md does not match' }, { status: 409 }),
+      ),
+    );
+
+    await expect(
+      client().putFile({ path: 'note.md', bytes: new Uint8Array(), message: 'm', branch: 'main', sha: 'x' }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe('deleteFile', () => {
+  it('sends the sha and branch', async () => {
+    let body: Record<string, unknown> = {};
+    server.use(
+      http.delete('https://api.github.com/repos/me/my-notes/contents/old.md', async ({ request }) => {
+        body = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ commit: { sha: 'c' } });
+      }),
+    );
+
+    await client().deleteFile({ path: 'old.md', sha: 'blobsha', message: 'Delete old.md', branch: 'main' });
+    expect(body).toEqual({ message: 'Delete old.md', branch: 'main', sha: 'blobsha' });
+  });
+
+  it('treats a 404 as already deleted', async () => {
+    server.use(
+      http.delete('https://api.github.com/repos/me/my-notes/contents/old.md', () =>
+        HttpResponse.json({ message: 'Not Found' }, { status: 404 }),
+      ),
+    );
+
+    await expect(
+      client().deleteFile({ path: 'old.md', sha: 'blobsha', message: 'm', branch: 'main' }),
+    ).resolves.toBeUndefined();
   });
 });
