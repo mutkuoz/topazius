@@ -6,6 +6,7 @@ import {
   type RawImage,
   REJECT_ABOVE_BYTES,
   assetPath,
+  canvasDownscaler,
   extensionFor,
   hashBytes,
   mimeForPath,
@@ -88,7 +89,11 @@ describe('prepareImage', () => {
     );
   });
 
-  it('downscales only when the file is over the byte threshold', async () => {
+  it('always consults the downscaler, whatever the file weighs', async () => {
+    // Spec §8.3 downscales above 1600px *or* 1MB. Gating the call on the byte
+    // count would silently drop the pixel half of that rule: a 4000px
+    // screenshot that compresses to 300KB still wants shrinking, and only the
+    // downscaler - which decodes the image - can tell.
     let called = 0;
     const downscale = async (image: RawImage) => {
       called++;
@@ -96,10 +101,22 @@ describe('prepareImage', () => {
     };
 
     await prepareImage(raw(new Uint8Array(10)), { downscale });
-    expect(called).toBe(0);
+    expect(called).toBe(1);
 
     await prepareImage(raw(new Uint8Array(DOWNSCALE_ABOVE_BYTES + 1)), { downscale });
-    expect(called).toBe(1);
+    expect(called).toBe(2);
+  });
+
+  it('uploads the original when the browser cannot decode the bytes', async () => {
+    // canvasDownscaler is what the app injects, and it decodes whatever was
+    // pasted. Bytes that claim to be a PNG but are not must not lose the
+    // paste: shrinking is an optimisation, so a decode failure falls through
+    // to uploading the file as it came.
+    const image = raw(new Uint8Array([1, 2, 3]), 'broken.png');
+    const prepared = await prepareImage(image, { downscale: canvasDownscaler, now: AUGUST });
+
+    expect(prepared.bytes).toEqual(image.bytes);
+    expect(prepared.mime).toBe('image/png');
   });
 
   it('rejects an image still over the hard limit after compression', async () => {

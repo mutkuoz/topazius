@@ -1,35 +1,74 @@
+<div align="center">
+
 # Topazius
 
-Your notes are plain markdown files in a private GitHub repository you own. Topazius is a small web
-app that reads and writes them, running entirely in your browser.
+**A markdown notes app whose database is a private GitHub repository you own.**
 
-There is no server, no account, and no third party. The app talks directly to `api.github.com` from
-your browser using a token that never leaves your device. Nobody operates this but you.
+No server. No account. No third party. It runs entirely in your browser and talks
+to `api.github.com` with a token that never leaves your device.
+
+[![CI](https://github.com/mutkuoz/topazius/actions/workflows/ci.yml/badge.svg)](https://github.com/mutkuoz/topazius/actions/workflows/ci.yml)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/topazius-dark.png">
+  <img alt="A note open in Topazius: the folder tree on the left, the markdown editor and its live preview side by side, backlinks on the right." src="docs/media/topazius-light.png">
+</picture>
+
+</div>
 
 ---
 
-## Status
+## The idea
 
-**Writing works.** Create, edit, rename, move and delete notes; paste images; seal individual notes
-so not even GitHub can read them; search, tag and link them; edit offline and install the app to
-your home screen.
+Your notes are `.md` files in a private repo. Not a proprietary database, not a
+sync service's copy of your data — files, in folders, in git.
 
-| Works today | Not yet |
-|---|---|
-| Connect a private repo with a token | A settings screen: the idle-lock interval, theme, editor width |
-| Create, edit, rename, move, delete notes | Preferences that follow the vault between devices |
-| Paste or drop images | Changing your passphrase without re-entering your token |
-| Encrypt individual notes, with a recovery key | Browsing a note's history inside the app |
-| Full-text search, tags, wikilinks, backlinks | |
-| Offline editing, install to home screen | |
-| Lock, idle-lock, unlock | |
+That single decision is what everything else follows from. The same vault opens
+in Obsidian, in vim, in `git clone`. Every edit is a commit, so history and
+recovery are git's problem, already solved. And because a static page can talk
+to the GitHub API directly, there is no backend to run, to trust, or to pay for.
 
-Every write is local first: typing never waits on the network, and edits made offline are queued and
-sent when you reconnect.
+Topazius is a good way to work on that vault from a browser — including a phone —
+not a place your notes live.
+
+## What it does
+
+**Writes.** A markdown editor that styles as you type: headings scale, emphasis
+shows, and the syntax markers dim until your cursor reaches them. The file on
+disk is exactly what you typed, byte for byte. A toolbar covers headings, bold,
+italic, strikethrough, code, lists, task lists, quotes, links, tables and
+dividers.
+
+**Saves without being asked.** Every keystroke lands in local storage
+immediately; a commit follows about ten seconds after you stop typing, or at
+once with `⌘S`. Typing never waits on the network — write on a plane, and the
+queue empties when you land.
+
+**Organises.** Folders are folders. Create, rename, move and delete notes from
+the tree or the palette; links between notes are rewritten when something moves.
+
+**Finds.** `⌘K` opens one box for everything: fuzzy quick-open by name, full-text
+search across every note, and the app's commands. Tags come from frontmatter and
+from `#inline` tags; `[[wikilinks]]` resolve by name and produce a backlinks
+panel.
+
+**Takes images.** Paste or drop one and it is downscaled, named by its content
+hash, committed under `assets/`, and linked at your cursor.
+
+**Encrypts what needs it.** Any single note can be sealed so that not even
+GitHub can read it — with a recovery key, so a forgotten passphrase is
+survivable. The rest of your vault stays plain markdown.
+
+**Installs.** Add it to your home screen or dock; cached notes are readable
+offline, and edits queue until you reconnect.
+
+**Locks itself.** After 15 minutes idle, or 5 minutes hidden, or whenever you
+press `⌘L`. Your token and your keys leave memory when it does.
 
 ## How it works
 
-Two repositories, because GitHub Pages cannot serve from a private repo on a free account:
+Two repositories, because GitHub Pages cannot serve from a private repo on a
+free account:
 
 ```
   github.com/<you>/topazius            github.com/<you>/my-notes
@@ -47,181 +86,167 @@ Two repositories, because GitHub Pages cannot serve from a private repo on a fre
                               api.github.com
 ```
 
-The app repo is public and contains only code — there is nothing secret in it. Your notes live in a
-separate private repo. Your token stays in your browser.
-
-Because your notes are ordinary `.md` files in ordinary folders, the same repository opens in
-Obsidian, in vim, or with `git clone`. Topazius is a way to work on that vault from a browser, not a
-place your notes live.
+The public fork holds only code — there is nothing secret in it. Your notes live
+in the private one. Your token stays in your browser, encrypted at rest under
+your passphrase.
 
 ## Setup
 
 About five minutes, once.
 
-### 1. Fork this repository
+### 1 · Fork this repository
 
-Use the **Fork** button. Keep the fork **public** — it holds no secrets, and a public fork is what
-lets GitHub Pages serve it for free.
+Use the **Fork** button, and keep the fork **public** — it holds no secrets, and
+a public fork is what lets Pages serve it for free.
 
-### 2. Enable Actions and Pages on your fork
+### 2 · Turn on Actions and Pages
 
 Both are off by default on a fork.
 
 - **Settings → Actions → General** → *Allow all actions and reusable workflows* → **Save**
-- **Settings → Pages** → under *Build and deployment*, set **Source** to **GitHub Actions**
+- **Settings → Pages** → *Build and deployment* → **Source: GitHub Actions**
 
-Both are required, and the Pages one cannot be automated: the deploy workflow's built-in token is not
-permitted to create a Pages site, so the first run fails with *"Get Pages site failed"* until you set
-that Source yourself.
+Then **Actions → Deploy → Run workflow**. When it finishes, your app is at
+`https://<your-username>.github.io/topazius/`.
 
-Then go to the **Actions** tab, pick the **Deploy** workflow, and press **Run workflow**. When it
-finishes, your app is live at `https://<your-username>.github.io/topazius/` — or under your custom
-domain, if your account has one configured.
+> [!NOTE]
+> The Pages step cannot be automated: the workflow's built-in token is not
+> allowed to create a Pages site, so the first run fails with *"Get Pages site
+> failed"* until you set that Source yourself.
 
-### 3. Create a private repository for your notes
+### 3 · Make a private repo for your notes
 
-A new, **private** repository — `my-notes` is a fine name. It can be empty; Topazius will create the
-first note for you.
+A new **private** repository — `my-notes` is a fine name. It can be completely
+empty; Topazius will write the first note.
 
-Do not put your notes in the fork. The fork is public.
+> [!WARNING]
+> Do not put your notes in the fork. The fork is public.
 
-### 4. Create a fine-grained access token
+### 4 · Create a fine-grained token
 
-Go to **[github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)** and create a token with:
+At **[github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new)**:
 
-- **Repository access** → *Only select repositories* → choose your notes repo, and nothing else
-- **Permissions** → *Repository permissions* → **Contents: Read and write**
-- Everything else left alone
-- An expiry you are comfortable with — you will need to issue a new one when it lapses
+| Setting | Value |
+|---|---|
+| Repository access | *Only select repositories* → your notes repo, nothing else |
+| Permissions → Repository | **Contents: Read and write** |
+| Everything else | leave alone |
+| Expiry | whatever you are comfortable with |
 
-**Avoid a classic token.** A classic token can reach every repository in your account. The app
-accepts one but warns you prominently, because a fine-grained token limited to a single repository
-is far safer if it is ever exposed.
+A **classic** token would reach every repository in your account. Topazius
+accepts one but warns you, because a fine-grained token limited to a single repo
+is far safer if it ever leaks.
 
-### 5. Connect
+### 5 · Connect
 
-Open your app URL and fill in the repository owner (your username), the repository name, your token,
-and a passphrase of at least 10 characters.
+Open your app URL and enter the repository owner, the repository name, your
+token, and a passphrase of at least 10 characters.
 
-The passphrase encrypts your token on this device. **It cannot be recovered.** If you forget it, you
-enter a new token and choose a new passphrase — your notes are untouched either way, since they live
-in GitHub, not in the app. (Once you encrypt a note, this stops being the whole story: see
-[Encrypting a note](#encrypting-a-note).)
+> [!IMPORTANT]
+> The passphrase encrypts your token on this device and **cannot be recovered**.
+> Forget it and you enter a new token and pick a new passphrase — your notes are
+> untouched either way, because they live in GitHub. (This changes the moment you
+> encrypt a note: see [Encryption](#encryption).)
 
 ## Using it
 
 ### Writing
 
-Press **⌘N**, give the note a title, pick a folder if you want one. There is no path to type and no
-`.md` to remember: *Weekly standup* in *work* becomes `work/Weekly standup.md`, and the dialog shows
-you that before it creates anything. Renaming and moving are the same two fields.
+Press `⌘N`, give the note a title, pick a folder. There is no path to type and no
+`.md` to remember — *Weekly standup* in *work* becomes `work/Weekly standup.md`,
+and the dialog shows you that before it creates anything. Renaming and moving are
+the same two fields.
 
-- **Browse** the folder tree on the left; click a note to open it. Every row has a **…** menu —
-  rename, move, encrypt, delete — and every folder a **+** for a new note inside it. Notes can also
-  be dragged onto a folder to move them.
-- **Know where you are.** The bar above the editor names the open note, the folder it lives in
-  (click a folder to filter the list to it), whether it is encrypted, and whether it has reached
-  GitHub yet.
-- **Type.** The editor is markdown, styled as you write: headings scale, emphasis shows, and the
-  syntax markers dim until your cursor is on their line. The file on disk is exactly what you typed.
-- **Format** from the toolbar or the keyboard: headings, bold, italic, strikethrough, inline code,
-  bulleted, numbered and task lists, quotes, links, links to other notes, images, code blocks,
-  tables and dividers. Markdown has no paragraph alignment, so neither does the toolbar — alignment
-  in markdown is per table column, in the `| --- |` row the table button writes for you.
-- **Choose a view**: *Write*, *Split* or *Read* — and collapse the note list entirely when you want
-  the window for the words.
-- **Saving happens by itself.** Every keystroke lands in local storage immediately; a commit follows
-  about ten seconds after you stop typing. `⌘S` commits now.
-- **A dot beside a note** means it has changes that have not reached GitHub yet. The chip in the
-  header says what the queue is doing: *Synced*, *Saving…*, *Offline — 2 pending*, *Conflict*.
+The bar above the editor tells you where you are: the note's title, its folder as
+clickable breadcrumbs, whether it is encrypted, and whether it has reached GitHub
+yet. Beside it, a **Write / Split / Read** switch, a link to the file on GitHub,
+and a menu with rename, encrypt, delete, and a link to the note's history on
+GitHub.
 
-Commits are named for what they did: `Update work/standup.md`, `Create recipes/pizza.md`,
-`Delete inbox/old.md`.
+Commits are named after what they did: `Update work/standup.md`,
+`Create recipes/pizza.md`, `Delete inbox/old.md`.
 
-### Finding things
+> [!TIP]
+> Markdown has no paragraph alignment, so the toolbar has no alignment button —
+> faking it with raw HTML would be stripped by the sanitizer and unreadable in
+> Obsidian. Alignment in markdown is per table column, in the `| --- |` row the
+> table button writes for you.
 
-- `⌘K` opens the palette: type to fuzzy-open by path, or to search the full text of every note.
-  `>` runs a command, `#` filters by tag, and `enc:` lists every encrypted note.
-- The **tag bar** under the tree filters the tree by tag. Tags come from frontmatter and from
-  `#inline` tags in the body.
-- `[[wikilinks]]` resolve by path or by unique filename. A link to a note that does not exist yet is
-  shown muted and offers to create it. The **Backlinks** panel lists what points at the open note.
+### Finding
+
+`⌘K` opens one box for all of it:
+
+| Type this | To get |
+|---|---|
+| anything | Quick-open by name, or search the full text of every note |
+| `>` | The app's commands |
+| `#` | Notes with a tag |
+| `enc:` | Every encrypted note |
+
+The tag bar under the tree filters it. `[[wikilinks]]` resolve by full path or by
+unique filename; a link to a note that does not exist yet renders muted and
+offers to create it.
 
 ### Images
 
-Paste or drop an image into the editor. It is downscaled if it is over 1600px or 1MB, named by its
-content hash, committed to `assets/YYYY/MM/`, and linked at your cursor. Pasting the same image
-twice reuses the first upload. Because your repo is private, images cannot be loaded by URL — the app
-fetches and decrypts them itself.
+Paste, drop, or use the toolbar. Images over 1600px or 1MB are downscaled,
+named `assets/YYYY/MM/<name>-<hash>.png`, and linked at your cursor. The same
+image pasted twice reuses the first upload. Because your repo is private, images
+cannot load by URL — the app fetches and decrypts them itself.
 
-### Encrypting a note
+### Encryption
 
-Right-click a note → **Encrypt this note**. The first time, the app will:
+<div align="center">
+  <img alt="The dialog shown before the first note is encrypted: what encryption hides, what stays visible, and a passphrase confirmation." src="docs/media/topazius-encrypt.png" width="720">
+</div>
 
-1. Show you exactly what encryption does and does not hide.
-2. Ask for your passphrase, and generate a **vault key** wrapped under it.
-3. Show you a **recovery key**, once. Store it. It is the only way back in if you forget your
-   passphrase — and once a note is encrypted, a forgotten passphrase would otherwise destroy it.
+Open a note's **…** menu → **Encrypt this note**. The first time, the app
+generates a **vault key**, wraps it under your passphrase, and shows you a
+**recovery key** exactly once. Store it: once a note is encrypted, a forgotten
+passphrase would otherwise destroy it.
 
-An encrypted note becomes `<name>.md.enc`, holding ciphertext that only your passphrase or your
-recovery key opens. Inside the app it behaves like any other note: it is searchable, linkable and
-editable, because it is decrypted in memory when you unlock. Outside the app — in Obsidian, in
-`git diff` — it is unreadable. That is the cost, and you pay it only on the notes you choose.
+An encrypted note becomes `<name>.md.enc` and holds ciphertext only your
+passphrase or recovery key opens. Inside the app it behaves like any other note —
+searchable, linkable, editable — because it is decrypted in memory at unlock.
+Outside the app it is unreadable, which is the whole point and the whole cost.
 
 What stays visible to anyone who can read the repository:
 
 | Visible | Hidden |
 |---|---|
-| File and folder names | Everything inside an encrypted note: title, tags, links, body |
+| File and folder names | Every encrypted note's title, tags, links and body |
 | Which notes are encrypted, and how many | |
 | Roughly how large each note is | |
 | Commit timestamps, so edit frequency | |
 
-So keep sensitive detail out of filenames: `journal/2026-08-27.md.enc`, not
+So keep the secret out of the filename: `journal/2026-08-27.md.enc`, not
 `journal/therapy-session.md.enc`.
 
-A folder can be encrypted in bulk from its context menu, or set to create new notes encrypted by
-default. Moving a note between folders never changes whether it is encrypted.
+### When things collide
 
-### Offline, and installing
-
-Cached notes are readable offline and edits are queued until you reconnect — the status chip says
-how many are waiting. Where your browser offers it, an **Install** button appears in the header and
-adds Topazius to your home screen or dock. The service worker caches the app itself and *never*
-caches anything from `api.github.com`.
-
-### Conflicts
-
-If a note changed on GitHub while you were editing it — a second device, a commit from your laptop —
-the save is refused rather than forced. Topazius shows both versions side by side with the changed
-lines highlighted, and asks: keep mine, keep theirs, or merge by hand. Nothing is resolved silently.
-
-### Locking
-
-- **Lock** with the button in the header or `⌘L`. The vault also locks itself after 15 minutes idle,
-  or after the tab has been hidden for 5 minutes.
-- **Unlock** with your passphrase. Only the passphrase — the token is already stored, encrypted.
-- **I forgot my passphrase** wipes the local data and returns you to setup. It does not touch your
-  notes.
+If a note changed on GitHub while you were editing it — another device, a commit
+from your laptop — the save is refused rather than forced. Topazius shows both
+versions side by side with the changed lines marked and asks: keep mine, keep
+theirs, or merge by hand. Nothing is resolved silently.
 
 ### Keyboard
 
-| | |
+| Key | Does |
 |---|---|
 | `⌘K` / `⌘⇧F` | Palette: quick-open, search, commands |
 | `⌘N` | New note |
 | `⌘S` | Commit now |
-| `⌘P` | Show or hide the preview |
+| `⌘P` | Editor only ⇄ editor and preview |
 | `⌘B` / `⌘I` | Bold, italic |
 | `⌘L` | Lock |
 | `Esc` | Close a dialog |
 
 ### Your vault is your folders
 
-Any `.md` (or `.md.enc`) file in any folder appears in the tree; nested folders nest. Two directory
+Any `.md` (or `.md.enc`) file in any folder appears in the tree. Two directory
 names are reserved and hidden: `assets/` and `.topazius/`.
 
-Notes may carry YAML frontmatter, which is read for the title and tags:
+Notes may carry YAML frontmatter, read for the title and tags:
 
 ```markdown
 ---
@@ -233,71 +258,103 @@ tags: [work, weekly]
 - shipped the thing
 ```
 
-Title falls back to the first `# heading`, then to the filename. Frontmatter is preserved exactly as
-you wrote it — comments, key order, unknown keys and all.
+Title falls back to the first `# heading`, then to the filename. Frontmatter is
+preserved exactly as you wrote it — comments, key order, unknown keys and all —
+so opening a note never produces a diff.
 
 ## Security
 
-The short version:
+- Your **token** is encrypted on this device with a key derived from your
+  passphrase (AES-256-GCM, PBKDF2-SHA256 at 600,000 iterations). It never goes
+  anywhere but `api.github.com`, and never appears in a URL, a log, or an error.
+- Your **cached notes and images** are encrypted on this device too, so a stolen
+  laptop does not expose the vault.
+- **Plain notes in the repository are not encrypted.** That is deliberate: it is
+  what keeps them readable by Obsidian, `grep` and `git diff`. Their privacy
+  rests on the repository being private.
+- **Encrypted notes** are sealed under a key that never leaves your browser
+  unwrapped, and the ciphertext is bound to the note's path so it cannot be
+  moved elsewhere and still open.
+- The app talks to **`api.github.com` and nothing else** — no analytics, no CDN,
+  no telemetry — enforced by a Content Security Policy in the shipped page, not
+  by convention. The service worker caches the app shell and never an API
+  response.
 
-- Your **token** is encrypted on your device with a key derived from your passphrase
-  (AES-256-GCM, PBKDF2-SHA256 at 600,000 iterations). It is never sent anywhere but `api.github.com`,
-  never written in the clear, and never appears in a URL, a log, or an error message.
-- Your **cached notes** are encrypted on your device too, so a stolen laptop does not expose them.
-- Your **plain notes in the repository are not encrypted.** They are ordinary markdown, on purpose —
-  that is what keeps them readable by Obsidian, vim, and `git diff`. Their privacy comes from the
-  repository being private.
-- Your **encrypted notes** are sealed with a key that never leaves your browser unwrapped. GitHub
-  stores only ciphertext, and the ciphertext is bound to the note's path, so it cannot be moved
-  elsewhere and still open.
-- The app contacts **`api.github.com` and nothing else**. No analytics, no CDN, no telemetry. This
-  is enforced by a Content Security Policy in the shipped page, not just by convention.
-
-The longer version, including what an attacker with access to your repository could still learn, is
-in **[docs/SECURITY.md](docs/SECURITY.md)**. Worth reading before you put anything sensitive in
-there.
+The long version, including what an attacker with repository access can still
+work out, is in **[docs/SECURITY.md](docs/SECURITY.md)**. Worth reading before
+you put anything sensitive in a vault.
 
 ## Troubleshooting
 
-**"Could not find that repository."** Check the owner and name, and check that the token's
-*Repository access* actually includes that repo. A token scoped to the wrong repository produces
-exactly this.
+<details>
+<summary><b>"Could not find that repository."</b></summary>
 
-**"GitHub rejected that token."** Expired, revoked, or mistyped. Issue a new one.
+Check the owner and name, and check that the token's *Repository access* really
+includes that repo. A token scoped to the wrong repository produces exactly this.
+</details>
 
-**"That token can read the repository but cannot write to it."** The token is missing
-*Contents: Read and write*.
+<details>
+<summary><b>"GitHub rejected that token."</b></summary>
 
-**The page is blank, or assets 404.** The deploy workflow needs to have run at least once with Pages
-set to *GitHub Actions* as its source. Re-run **Deploy** from the Actions tab.
+Expired, revoked, or mistyped. Issue a new one. The app locks itself when GitHub
+rejects a token mid-session, so this can also appear as a sudden lock.
+</details>
 
-**"That passphrase did not unlock this vault."** The passphrase is wrong, or the local data belongs
-to a different vault. Use *I forgot my passphrase* to start over — your notes are safe.
+<details>
+<summary><b>"That token can read the repository but cannot write to it."</b></summary>
 
-**The chip says "Offline" and a note has a dot.** Your edits are saved locally and queued. They go
-out on the next successful request; **Retry** forces one.
+The token is missing **Contents: Read and write**.
+</details>
 
-**The chip says "Conflict".** That note changed on GitHub while you were editing it. Open it and
-choose which version wins — nothing has been overwritten.
+<details>
+<summary><b>The page is blank, or its assets 404.</b></summary>
 
-**"This note is encrypted. Unlock the vault key to read it."** This device has not seen the vault key
-yet, or it was rewrapped elsewhere. Use **Unlock encrypted notes** in the header and enter your
-passphrase or your recovery key.
+The deploy workflow needs to have run at least once with Pages set to *GitHub
+Actions* as its source. Re-run **Deploy** from the Actions tab.
+</details>
 
-**Nothing loads and the header shows an error.** Your token may have expired; the app locks itself
-when GitHub rejects it. Unlock and, if it persists, issue a fresh token.
+<details>
+<summary><b>"That passphrase did not unlock this vault."</b></summary>
 
-## Local development
+The passphrase is wrong, or the local data belongs to a different vault. *I
+forgot my passphrase* starts over — your notes are safe in GitHub.
+</details>
+
+<details>
+<summary><b>The chip says "Offline" and a note has a dot beside it.</b></summary>
+
+Your edits are saved locally and queued. They go out on the next successful
+request; **Retry** forces one.
+</details>
+
+<details>
+<summary><b>The chip says "Conflict".</b></summary>
+
+That note changed on GitHub while you were editing it. Open it and choose which
+version wins — nothing has been overwritten.
+</details>
+
+<details>
+<summary><b>"This note is encrypted. Unlock the vault key to read it."</b></summary>
+
+This device has not seen the vault key yet, or it was re-wrapped elsewhere. Use
+**Unlock encrypted notes** in the header and give it your passphrase or your
+recovery key.
+</details>
+
+## Development
 
 ```bash
 npm install
-npm run dev
+npm run dev        # Vite dev server
+npm test           # Vitest
+npm run build      # typecheck + production build
 ```
 
-Tests, architecture and the module layout are in **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**.
+Preact, TypeScript, CodeMirror 6, Vite. No backend, no state library, no runtime
+dependency on anything but GitHub. Architecture, module layout and the
+decisions worth not undoing are in **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**.
 
-## Design documents
-
-The full specification and the implementation plan this was built from live in
-[`docs/superpowers/`](docs/superpowers/). They are more detail than most people need, but they
-explain why the design is shaped the way it is.
+The specification this was built from is in
+[`docs/superpowers/`](docs/superpowers/) — more detail than most people need,
+but it explains why the design is shaped the way it is.

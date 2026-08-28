@@ -162,7 +162,7 @@ sizes; the entry chunk is the one named `index-*.js`.
 
 ## Testing
 
-Vitest, with `fake-indexeddb` and `msw`. 458 tests.
+Vitest, with `fake-indexeddb` and `msw`. 459 tests.
 
 - **Real crypto.** Tests run genuine WebCrypto at the real 600,000 iterations. They are a few
   seconds slower for it, and that is the point — reducing the count to speed them up would test a
