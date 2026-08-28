@@ -68,7 +68,7 @@ export function Prompt({
             {error}
           </p>
         )}
-        <div class="row">
+        <div class="dialog-actions">
           <button type="submit" disabled={busy}>
             {busy ? 'Working…' : confirmLabel}
           </button>
@@ -109,7 +109,7 @@ export function Confirm({
           {error}
         </p>
       )}
-      <div class="row">
+      <div class="dialog-actions">
         <button
           type="button"
           class={destructive ? 'danger' : ''}

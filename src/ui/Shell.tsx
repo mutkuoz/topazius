@@ -13,6 +13,8 @@ export interface ShellProps {
   onPane: (pane: Pane) => void;
   /** Hidden when the right-hand column is collapsed. */
   showAside: boolean;
+  /** The note list can be collapsed to give the editor the whole window. */
+  showSidebar: boolean;
 }
 
 /**
@@ -20,14 +22,24 @@ export interface ShellProps {
  * (spec §11.4). The layout is CSS grid; this component only decides which
  * slots exist and, on small screens, which one is on top.
  */
-export function Shell({ header, sidebar, main, aside, pane, onPane, showAside }: ShellProps) {
+export function Shell({ header, sidebar, main, aside, pane, onPane, showAside, showSidebar }: ShellProps) {
+  const classes = [
+    'shell',
+    showAside && aside ? 'with-aside' : '',
+    showSidebar ? '' : 'no-sidebar',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div class={`shell${showAside && aside ? ' with-aside' : ''}`} data-pane={pane}>
+    <div class={classes} data-pane={pane}>
       <header class="shell-header">{header}</header>
 
-      <aside class="shell-sidebar" aria-label="Notes">
-        {sidebar}
-      </aside>
+      {showSidebar && (
+        <aside class="shell-sidebar" aria-label="Notes">
+          {sidebar}
+        </aside>
+      )}
 
       <main class="shell-main">{main}</main>
 

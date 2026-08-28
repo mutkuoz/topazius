@@ -49,8 +49,33 @@ describe('<Tree />', () => {
     );
   });
 
-  it('says so when the vault has no notes yet', () => {
-    render(<Tree paths={[]} selected={null} onSelect={vi.fn()} />);
-    expect(document.body.textContent).toMatch(/no notes/i);
+  it('says so when the vault has no notes yet, and offers to fix that', async () => {
+    const onAction = vi.fn();
+    const user = userEvent.setup();
+    render(<Tree paths={[]} selected={null} onSelect={vi.fn()} onAction={onAction} />);
+
+    expect(document.body.textContent).toMatch(/nothing here yet/i);
+    await user.click(screen.getByRole('button', { name: /write your first note/i }));
+    expect(onAction).toHaveBeenCalledWith({ kind: 'new', folder: '' });
+  });
+
+  it('offers per-row actions without requiring a right-click', async () => {
+    const onAction = vi.fn();
+    const user = userEvent.setup();
+    render(<Tree paths={PATHS} selected={null} onSelect={vi.fn()} onAction={onAction} />);
+
+    // A folder's "+" creates a note in it.
+    await user.click(screen.getByRole('button', { name: 'New note in work' }));
+    expect(onAction).toHaveBeenCalledWith({ kind: 'new', folder: 'work' });
+
+    // A note's menu carries the rest.
+    await user.click(screen.getByRole('button', { name: 'Actions for standup' }));
+    await user.click(screen.getByRole('menuitem', { name: /rename or move/i }));
+    expect(onAction).toHaveBeenCalledWith({ kind: 'rename', path: 'work/standup.md' });
+  });
+
+  it('hides the row actions from a read-only tree', () => {
+    render(<Tree paths={PATHS} selected={null} onSelect={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /actions for/i })).toBeNull();
   });
 });

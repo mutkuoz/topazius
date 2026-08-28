@@ -1,18 +1,27 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { type EditorHandle, createEditor } from '../editor/setup';
+import { type EditorAction, type EditorHandle, createEditor } from '../editor/setup';
 import './editor.css';
 
 /** Keystroke to local storage, per spec §3.2. Typing never waits on this. */
 export const SAVE_DEBOUNCE_MS = 400;
 
+/** What the toolbar and the image paste path need from a mounted editor. */
+export interface EditorControls {
+  /** Insert text at the cursor, in the *live* document. */
+  insert: (text: string) => void;
+  run: (action: EditorAction) => void;
+}
+
 export interface EditorProps {
   path: string;
   /**
-   * Filled in with a function that inserts text at the cursor. The image path
-   * has to go into the *live* document: reading the note back from the vault
-   * and appending to it would drop whatever is still inside the save debounce.
+   * Filled in while an editor is mounted, and emptied when it is not.
+   *
+   * Text has to go into the live document: reading the note back from the
+   * vault and appending to it would drop whatever is still inside the save
+   * debounce.
    */
-  insertRef?: { current: ((text: string) => void) | null };
+  controls?: { current: EditorControls | null };
   /** The note's text as last read from the vault. */
   text: string;
   livePreview: boolean;
@@ -38,7 +47,7 @@ export function Editor({
   text,
   livePreview,
   readOnly,
-  insertRef,
+  controls,
   onChange,
   onSaveNow,
   onFiles,
@@ -107,9 +116,14 @@ export function Editor({
     }
 
     handle.current = created;
-    if (insertRef) insertRef.current = (value: string) => created.insert(value);
+    if (controls) {
+      controls.current = {
+        insert: (value: string) => created.insert(value),
+        run: (action: EditorAction) => created.run(action),
+      };
+    }
     return () => {
-      if (insertRef) insertRef.current = null;
+      if (controls) controls.current = null;
       // An edit still inside the debounce must not be lost to a note switch.
       flushPending(notePath);
       created.destroy();

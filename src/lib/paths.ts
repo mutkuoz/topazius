@@ -10,6 +10,10 @@ const RESERVED_STEMS = new Set([
 ]);
 
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
+// A separate global copy for stripping: a /g regex carries lastIndex between
+// calls, so sharing one with the .test() above would make that check answer
+// differently on alternate invocations.
+const CONTROL_CHARS_ALL = /[\u0000-\u001F\u007F]/g;
 const ILLEGAL_IN_NAME = /[/\\:*?"<>|]/g;
 
 export class PathError extends Error {
@@ -24,7 +28,7 @@ const byteLength = (s: string): number => utf8.encode(s).length;
 
 /** Sanitise a segment for safe error message interpolation. */
 function sanitiseSegment(segment: string): string {
-  const cleaned = segment.replace(CONTROL_CHARS, '');
+  const cleaned = segment.replace(CONTROL_CHARS_ALL, '');
   return cleaned.length > 40 ? cleaned.slice(0, 40) + '…' : cleaned;
 }
 
@@ -94,6 +98,31 @@ export function noteStem(path: string): string {
 
 export function isReservedPath(path: string): boolean {
   return RESERVED_DIRS.some((dir) => path.startsWith(dir));
+}
+
+/**
+ * A filename for a note the user titled `title`.
+ *
+ * Deliberately not slugify(): a note called "Weekly standup" becomes
+ * `Weekly standup.md`, not `weekly-standup.md`. The filename *is* the title
+ * when there is no frontmatter, this vault is opened by hand in Obsidian and
+ * in `ls`, and a machine-looking name there is a worse answer than a space.
+ * Only what a filesystem or a URL cannot carry is removed.
+ */
+export function titleToFileName(title: string): string {
+  const cleaned = title
+    .normalize('NFC')
+    .replace(CONTROL_CHARS_ALL, '')
+    .replace(ILLEGAL_IN_NAME, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, 100)
+    .trim();
+
+  if (cleaned === '' || RESERVED_STEMS.has(cleaned.split('.')[0]?.toLowerCase() ?? '')) {
+    return cleaned === '' ? 'Untitled' : `${cleaned} note`;
+  }
+  return cleaned;
 }
 
 export function slugify(title: string): string {

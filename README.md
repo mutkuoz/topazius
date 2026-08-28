@@ -112,10 +112,24 @@ in GitHub, not in the app. (Once you encrypt a note, this stops being the whole 
 
 ### Writing
 
-- **Browse** the folder tree on the left; click a note to open it. Right-click a note or folder for
-  new, rename, move, delete and encrypt. Notes can be dragged onto a folder to move them.
+Press **⌘N**, give the note a title, pick a folder if you want one. There is no path to type and no
+`.md` to remember: *Weekly standup* in *work* becomes `work/Weekly standup.md`, and the dialog shows
+you that before it creates anything. Renaming and moving are the same two fields.
+
+- **Browse** the folder tree on the left; click a note to open it. Every row has a **…** menu —
+  rename, move, encrypt, delete — and every folder a **+** for a new note inside it. Notes can also
+  be dragged onto a folder to move them.
+- **Know where you are.** The bar above the editor names the open note, the folder it lives in
+  (click a folder to filter the list to it), whether it is encrypted, and whether it has reached
+  GitHub yet.
 - **Type.** The editor is markdown, styled as you write: headings scale, emphasis shows, and the
   syntax markers dim until your cursor is on their line. The file on disk is exactly what you typed.
+- **Format** from the toolbar or the keyboard: headings, bold, italic, strikethrough, inline code,
+  bulleted, numbered and task lists, quotes, links, links to other notes, images, code blocks,
+  tables and dividers. Markdown has no paragraph alignment, so neither does the toolbar — alignment
+  in markdown is per table column, in the `| --- |` row the table button writes for you.
+- **Choose a view**: *Write*, *Split* or *Read* — and collapse the note list entirely when you want
+  the window for the words.
 - **Saving happens by itself.** Every keystroke lands in local storage immediately; a commit follows
   about ten seconds after you stop typing. `⌘S` commits now.
 - **A dot beside a note** means it has changes that have not reached GitHub yet. The chip in the
@@ -195,6 +209,7 @@ lines highlighted, and asks: keep mine, keep theirs, or merge by hand. Nothing i
 | | |
 |---|---|
 | `⌘K` / `⌘⇧F` | Palette: quick-open, search, commands |
+| `⌘N` | New note |
 | `⌘S` | Commit now |
 | `⌘P` | Show or hide the preview |
 | `⌘B` / `⌘I` | Bold, italic |

@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useRef, useState } from 'preact/hooks';
 import { type TreeNode, buildTree } from '../lib/tree';
+import { MenuButton } from './Menu';
+import { MoreIcon, PlusIcon } from './icons';
 
 export type TreeAction =
   | { kind: 'new'; folder: string }
@@ -15,39 +17,88 @@ export interface TreeProps {
   selected: string | null;
   /** Paths with unsynced local edits, marked with a dot. */
   dirty?: string[];
-  /** A folder's creation default, for the context menu (spec §9.5). */
+  /** A folder's creation default, for its menu (spec §9.5). */
   folderDefault?: (folder: string) => 'plain' | 'encrypted';
   onSelect: (path: string) => void;
   onAction?: (action: TreeAction) => void;
 }
 
-interface RowsProps extends Required<Pick<TreeProps, 'onSelect'>> {
+interface RowsProps {
   nodes: TreeNode[];
   depth: number;
   collapsed: Set<string>;
   toggle: (path: string) => void;
   selected: string | null;
   dirty: Set<string>;
+  folderDefault?: (folder: string) => 'plain' | 'encrypted';
+  onSelect: (path: string) => void;
   onAction?: (action: TreeAction) => void;
-  onMenu: (target: { node: TreeNode; x: number; y: number }) => void;
 }
 
-function Rows({ nodes, depth, collapsed, toggle, selected, dirty, onSelect, onAction, onMenu }: RowsProps) {
+/** What a folder row offers — as visible items, not as a right-click secret. */
+function folderItems(
+  folder: string,
+  onAction: (action: TreeAction) => void,
+  folderDefault?: (folder: string) => 'plain' | 'encrypted',
+) {
+  const encryptedByDefault = folderDefault?.(folder) === 'encrypted';
+  return [
+    { label: 'New note here', onSelect: () => onAction({ kind: 'new', folder }) },
+    {
+      label: 'Encrypt every note in this folder',
+      onSelect: () => onAction({ kind: 'encrypt-folder', folder, on: true }),
+    },
+    {
+      label: 'Decrypt this folder',
+      onSelect: () => onAction({ kind: 'encrypt-folder', folder, on: false }),
+    },
+    ...(folderDefault
+      ? [
+          {
+            label: encryptedByDefault
+              ? 'Create new notes here plain'
+              : 'Create new notes here encrypted',
+            onSelect: () =>
+              onAction({
+                kind: 'folder-default',
+                folder,
+                value: encryptedByDefault ? ('plain' as const) : ('encrypted' as const),
+              }),
+          },
+        ]
+      : []),
+  ];
+}
+
+function noteItems(node: TreeNode, onAction: (action: TreeAction) => void) {
+  return [
+    { label: 'Rename or move…', onSelect: () => onAction({ kind: 'rename', path: node.path }) },
+    {
+      label: node.encrypted ? 'Decrypt this note' : 'Encrypt this note',
+      onSelect: () => onAction({ kind: 'encrypt', path: node.path, on: !node.encrypted }),
+    },
+    { label: 'Delete…', onSelect: () => onAction({ kind: 'delete', path: node.path }), danger: true },
+  ];
+}
+
+function Rows({
+  nodes,
+  depth,
+  collapsed,
+  toggle,
+  selected,
+  dirty,
+  folderDefault,
+  onSelect,
+  onAction,
+}: RowsProps) {
   return (
     <ul role="group">
       {nodes.map((node) =>
         node.kind === 'folder' ? (
           <li key={node.path} role="treeitem" aria-expanded={!collapsed.has(node.path)}>
-            <button
-              type="button"
-              class="row folder"
-              data-folder={node.path}
-              style={{ paddingInlineStart: `${depth * 0.85 + 0.5}rem` }}
-              onClick={() => toggle(node.path)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                onMenu({ node, x: event.clientX, y: event.clientY });
-              }}
+            <div
+              class="row"
               onDragOver={(event) => {
                 if (!onAction) return;
                 event.preventDefault();
@@ -60,8 +111,44 @@ function Rows({ nodes, depth, collapsed, toggle, selected, dirty, onSelect, onAc
                 if (path) onAction?.({ kind: 'move', path, folder: node.path });
               }}
             >
-              <span aria-hidden="true">{collapsed.has(node.path) ? '>' : 'v'}</span> {node.name}
-            </button>
+              <button
+                type="button"
+                class="row-main folder"
+                data-folder={node.path}
+                style={{ paddingInlineStart: `${depth * 0.85 + 0.4}rem` }}
+                onClick={() => toggle(node.path)}
+              >
+                <span class="row-inner">
+                  <span class="row-twisty" aria-hidden="true">
+                    {collapsed.has(node.path) ? '›' : '⌄'}
+                  </span>
+                  <span class="row-label">{node.name}</span>
+                </span>
+              </button>
+
+              {onAction && (
+                <>
+                  <button
+                    type="button"
+                    class="row-action"
+                    aria-label={`New note in ${node.path}`}
+                    title={`New note in ${node.path}`}
+                    onClick={() => onAction({ kind: 'new', folder: node.path })}
+                  >
+                    <PlusIcon />
+                  </button>
+                  <span class="row-action">
+                    <MenuButton
+                      label={`Actions for ${node.path}`}
+                      items={folderItems(node.path, onAction, folderDefault)}
+                    >
+                      <MoreIcon />
+                    </MenuButton>
+                  </span>
+                </>
+              )}
+            </div>
+
             {!collapsed.has(node.path) && (
               <Rows
                 nodes={node.children}
@@ -70,39 +157,47 @@ function Rows({ nodes, depth, collapsed, toggle, selected, dirty, onSelect, onAc
                 toggle={toggle}
                 selected={selected}
                 dirty={dirty}
+                {...(folderDefault ? { folderDefault } : {})}
                 onSelect={onSelect}
-                onAction={onAction}
-                onMenu={onMenu}
+                {...(onAction ? { onAction } : {})}
               />
             )}
           </li>
         ) : (
           <li key={node.path} role="treeitem" aria-selected={selected === node.path}>
-            <button
-              type="button"
-              class={`row note${selected === node.path ? ' selected' : ''}`}
-              data-path={node.path}
-              style={{ paddingInlineStart: `${depth * 0.85 + 1.4}rem` }}
-              draggable={onAction !== undefined}
-              onClick={() => onSelect(node.path)}
-              onDragStart={(event) => event.dataTransfer?.setData('text/topazius-note', node.path)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                onMenu({ node, x: event.clientX, y: event.clientY });
-              }}
-            >
-              {node.name}
-              {dirty.has(node.path) && (
-                <span class="dot" title="Not yet saved to GitHub" aria-label="unsaved">
-                  •
+            <div class={`row${selected === node.path ? ' selected' : ''}`}>
+              <button
+                type="button"
+                class="row-main note"
+                data-path={node.path}
+                style={{ paddingInlineStart: `${depth * 0.85 + 1.3}rem` }}
+                draggable={onAction !== undefined}
+                onClick={() => onSelect(node.path)}
+                onDragStart={(event) => event.dataTransfer?.setData('text/topazius-note', node.path)}
+              >
+                <span class="row-inner">
+                  <span class="row-label">{node.name}</span>
+                  {dirty.has(node.path) && (
+                    <span class="dot" title="Not yet saved to GitHub" aria-label="unsaved">
+                      •
+                    </span>
+                  )}
+                  {node.encrypted && (
+                    <span class="badge" title="Encrypted">
+                      enc
+                    </span>
+                  )}
+                </span>
+              </button>
+
+              {onAction && (
+                <span class="row-action">
+                  <MenuButton label={`Actions for ${node.name}`} items={noteItems(node, onAction)}>
+                    <MoreIcon />
+                  </MenuButton>
                 </span>
               )}
-              {node.encrypted && (
-                <span class="badge" title="Encrypted">
-                  enc
-                </span>
-              )}
-            </button>
+            </div>
           </li>
         ),
       )}
@@ -110,27 +205,9 @@ function Rows({ nodes, depth, collapsed, toggle, selected, dirty, onSelect, onAc
   );
 }
 
-interface MenuTarget {
-  node: TreeNode;
-  x: number;
-  y: number;
-}
-
 export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onAction }: TreeProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [menu, setMenu] = useState<MenuTarget | null>(null);
   const container = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    document.addEventListener('click', close);
-    document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('click', close);
-      document.removeEventListener('keydown', close);
-    };
-  }, [menu]);
 
   function toggle(path: string) {
     setCollapsed((previous) => {
@@ -146,7 +223,7 @@ export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onA
    * collapsed.
    */
   function onKeyDown(event: KeyboardEvent) {
-    const rows = [...(container.current?.querySelectorAll<HTMLButtonElement>('button.row') ?? [])];
+    const rows = [...(container.current?.querySelectorAll<HTMLButtonElement>('button.row-main') ?? [])];
     const index = rows.indexOf(document.activeElement as HTMLButtonElement);
     if (index === -1) return;
 
@@ -155,36 +232,32 @@ export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onA
 
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      const next = rows[index + (event.key === 'ArrowDown' ? 1 : -1)];
-      next?.focus();
+      rows[index + (event.key === 'ArrowDown' ? 1 : -1)]?.focus();
       return;
     }
 
     if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
-      if (!current?.classList.contains('folder')) return;
+      const folder = current?.getAttribute('data-folder');
+      if (!folder) return;
       event.preventDefault();
-      const folderPath = current.getAttribute('data-folder');
-      if (!folderPath) return;
-      const isCollapsed = collapsed.has(folderPath);
-      if (event.key === 'ArrowRight' ? isCollapsed : !isCollapsed) toggle(folderPath);
+      const isCollapsed = collapsed.has(folder);
+      if (event.key === 'ArrowRight' ? isCollapsed : !isCollapsed) toggle(folder);
       return;
     }
 
-    if (event.key === 'Enter' || event.key === ' ') {
-      if (path) {
-        event.preventDefault();
-        onSelect(path);
-      }
+    if ((event.key === 'Enter' || event.key === ' ') && path) {
+      event.preventDefault();
+      onSelect(path);
     }
   }
 
   if (paths.length === 0) {
     return (
       <div class="tree-empty">
-        <p class="hint">No notes yet.</p>
+        <p class="hint">Nothing here yet.</p>
         {onAction && (
           <button type="button" class="linkish" onClick={() => onAction({ kind: 'new', folder: '' })}>
-            Create your first note
+            Write your first note
           </button>
         )}
       </div>
@@ -192,23 +265,7 @@ export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onA
   }
 
   return (
-    <nav
-      role="tree"
-      aria-label="Notes"
-      ref={container}
-      onKeyDown={onKeyDown}
-      onContextMenu={(event) => {
-        // A right-click on the empty area below the tree still offers "new
-        // note", which is where people reach for it.
-        if (event.target !== event.currentTarget || !onAction) return;
-        event.preventDefault();
-        setMenu({
-          node: { name: '', path: '', kind: 'folder', encrypted: false, children: [] },
-          x: event.clientX,
-          y: event.clientY,
-        });
-      }}
-    >
+    <nav role="tree" aria-label="Notes" ref={container} onKeyDown={onKeyDown}>
       <Rows
         nodes={buildTree(paths)}
         depth={0}
@@ -216,86 +273,10 @@ export function Tree({ paths, selected, dirty = [], folderDefault, onSelect, onA
         toggle={toggle}
         selected={selected}
         dirty={new Set(dirty)}
+        {...(folderDefault ? { folderDefault } : {})}
         onSelect={onSelect}
-        onAction={onAction}
-        onMenu={setMenu}
+        {...(onAction ? { onAction } : {})}
       />
-
-      {menu && onAction && (
-        <div
-          class="context-menu"
-          role="menu"
-          style={{ left: `${menu.x}px`, top: `${menu.y}px` }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {menu.node.kind === 'folder' ? (
-            <>
-              <button type="button" role="menuitem" onClick={() => act({ kind: 'new', folder: menu.node.path })}>
-                New note here
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => act({ kind: 'encrypt-folder', folder: menu.node.path, on: true })}
-              >
-                Encrypt every note in this folder
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => act({ kind: 'encrypt-folder', folder: menu.node.path, on: false })}
-              >
-                Decrypt this folder
-              </button>
-              {folderDefault && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() =>
-                    act({
-                      kind: 'folder-default',
-                      folder: menu.node.path,
-                      value: folderDefault(menu.node.path) === 'encrypted' ? 'plain' : 'encrypted',
-                    })
-                  }
-                >
-                  {folderDefault(menu.node.path) === 'encrypted'
-                    ? 'Create new notes here plain'
-                    : 'Create new notes here encrypted'}
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <button type="button" role="menuitem" onClick={() => act({ kind: 'rename', path: menu.node.path })}>
-                Rename or move…
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() =>
-                  act({ kind: 'encrypt', path: menu.node.path, on: !menu.node.encrypted })
-                }
-              >
-                {menu.node.encrypted ? 'Decrypt this note' : 'Encrypt this note'}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                class="danger"
-                onClick={() => act({ kind: 'delete', path: menu.node.path })}
-              >
-                Delete…
-              </button>
-            </>
-          )}
-        </div>
-      )}
     </nav>
   );
-
-  function act(action: TreeAction) {
-    setMenu(null);
-    onAction?.(action);
-  }
 }
