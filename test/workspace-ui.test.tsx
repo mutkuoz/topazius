@@ -139,8 +139,39 @@ function fakeVault(options: FakeOptions = {}) {
 function renderWorkspace(options: FakeOptions = {}) {
   const fake = fakeVault(options);
   const onLock = vi.fn();
-  render(<Workspace vault={fake.vault} onLock={onLock} label="me/my-notes" />);
+  render(
+    <Workspace
+      vault={fake.vault}
+      onLock={onLock}
+      repo={{ owner: 'me', repo: 'my-notes', branch: 'main' }}
+    />,
+  );
   return { ...fake, onLock, user: userEvent.setup() };
+}
+
+/**
+ * A tree row, by the path it points at. Rows carry their own action menu, so
+ * "the button called standup" is ambiguous - and the note's own name is not
+ * the whole accessible name once it is unsaved or encrypted.
+ */
+function row(path: string): HTMLElement {
+  const element = document.querySelector<HTMLElement>(`button[data-path="${path}"]`);
+  if (!element) throw new Error(`no row in the tree for ${path}`);
+  return element;
+}
+
+/** The sidebar's own "New note" button, as opposed to a folder's. */
+function newNoteButton(): HTMLElement {
+  const actions = document.querySelector<HTMLElement>('.sidebar-actions');
+  if (!actions) throw new Error('the sidebar has no actions');
+  return within(actions).getByRole('button');
+}
+
+/** The "…" menu attached to that row. */
+function rowMenu(path: string): HTMLElement {
+  const menu = row(path).parentElement?.querySelector<HTMLElement>('[aria-haspopup="menu"]');
+  if (!menu) throw new Error(`no action menu for ${path}`);
+  return menu;
 }
 
 const NOTES = {
@@ -152,7 +183,7 @@ describe('opening notes', () => {
   it('lists the vault and opens a note when its row is clicked', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
 
-    await user.click(screen.getByRole('button', { name: /standup/ }));
+    await user.click(row('work/standup.md'));
 
     const preview = await previewPane();
     expect(within(preview).getByText(/shipped the parser/)).toBeInTheDocument();
@@ -164,7 +195,7 @@ describe('opening notes', () => {
       state: { paths: [...Object.keys(NOTES), 'journal/sealed.md.enc'], unreadable: ['journal/sealed.md.enc'] },
     });
 
-    await user.click(screen.getByRole('button', { name: /sealed/ }));
+    await user.click(row('journal/sealed.md.enc'));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/not cached/i);
   });
@@ -180,7 +211,7 @@ describe('opening notes', () => {
 describe('editing', () => {
   it('writes edits back to the vault', async () => {
     const { user, calls } = renderWorkspace({ notes: NOTES });
-    await user.click(screen.getByRole('button', { name: /standup/ }));
+    await user.click(row('work/standup.md'));
     await previewPane();
 
     const line = document.querySelector('.cm-content');
@@ -197,7 +228,7 @@ describe('editing', () => {
 describe('preview', () => {
   it('renders the note and follows a wikilink', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
-    await user.click(screen.getByRole('button', { name: /standup/ }));
+    await user.click(row('work/standup.md'));
 
     const preview = await previewPane();
     await user.click(within(preview).getByText('work/roadmap'));
@@ -209,13 +240,15 @@ describe('preview', () => {
 
   it('filters the tree when a tag is clicked in the preview', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
-    await user.click(screen.getByRole('button', { name: /standup/ }));
+    await user.click(row('work/standup.md'));
 
     const preview = await previewPane();
     await user.click(within(preview).getByText('#planning'));
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: /roadmap/ })).toBeNull());
-    expect(screen.getByRole('button', { name: /standup/ })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.querySelector('button[data-path="work/roadmap.md"]')).toBeNull(),
+    );
+    expect(row('work/standup.md')).toBeInTheDocument();
   });
 });
 
@@ -236,7 +269,7 @@ describe('the command palette', () => {
   it('finds a note by its body text', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
 
-    await user.click(screen.getByRole('button', { name: /search/i }));
+    await user.click(screen.getByRole('button', { name: /search notes/i }));
     const palette = await screen.findByRole('dialog', { name: /command palette/i });
     await user.type(within(palette).getByRole('textbox'), 'parser');
 
@@ -296,7 +329,7 @@ describe('the command palette', () => {
 
   it('returns focus to where it came from', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
-    const search = screen.getByRole('button', { name: /search/i });
+    const search = screen.getByRole('button', { name: /search notes/i });
 
     await user.click(search);
     await screen.findByRole('dialog', { name: /command palette/i });
@@ -307,23 +340,40 @@ describe('the command palette', () => {
 });
 
 describe('the note lifecycle', () => {
-  it('creates a note from the sidebar', async () => {
+  it('creates a note from a title and a folder, never a typed path', async () => {
     const { user, calls } = renderWorkspace({ notes: NOTES });
 
-    await user.click(screen.getByRole('button', { name: /new note/i }));
+    await user.click(newNoteButton());
     const dialog = await screen.findByRole('dialog', { name: /new note/i });
-    const input = within(dialog).getByRole('textbox');
-    await user.clear(input);
-    await user.type(input, 'inbox/idea.md');
-    await user.click(within(dialog).getByRole('button', { name: /create/i }));
 
-    await waitFor(() => expect(calls.create).toEqual(['inbox/idea.md']));
+    await user.type(within(dialog).getByLabelText('Title'), 'Weekly standup');
+    await user.type(within(dialog).getByLabelText('Folder'), 'inbox');
+
+    // The path is shown before anything is created, and the extension is the
+    // app's business.
+    expect(within(dialog).getByText('inbox/Weekly standup.md')).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: /create note/i }));
+    await waitFor(() => expect(calls.create).toEqual(['inbox/Weekly standup.md']));
+  });
+
+  it('refuses to create a note on top of one that exists', async () => {
+    const { user, calls } = renderWorkspace({ notes: NOTES });
+
+    await user.click(newNoteButton());
+    const dialog = await screen.findByRole('dialog', { name: /new note/i });
+    await user.type(within(dialog).getByLabelText('Title'), 'standup');
+    await user.type(within(dialog).getByLabelText('Folder'), 'work');
+
+    expect(within(dialog).getByRole('status')).toHaveTextContent(/already lives there/i);
+    expect(within(dialog).getByRole('button', { name: /create note/i })).toBeDisabled();
+    expect(calls.create).toEqual([]);
   });
 
   it('asks before deleting, and deletes on confirmation', async () => {
     const { user, calls } = renderWorkspace({ notes: NOTES });
 
-    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: /standup/ }) });
+    await user.click(rowMenu('work/standup.md'));
     await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
 
     const dialog = await screen.findByRole('dialog', { name: /delete this note/i });
@@ -333,19 +383,25 @@ describe('the note lifecycle', () => {
     await waitFor(() => expect(calls.remove).toEqual(['work/standup.md']));
   });
 
-  it('renames through the context menu', async () => {
+  it('renames and moves from the row menu, in one dialog', async () => {
     const { user, calls } = renderWorkspace({ notes: NOTES });
 
-    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: /standup/ }) });
+    await user.click(rowMenu('work/standup.md'));
     await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
 
     const dialog = await screen.findByRole('dialog', { name: /rename or move/i });
-    const input = within(dialog).getByRole('textbox');
-    await user.clear(input);
-    await user.type(input, 'archive/standup.md');
-    await user.click(within(dialog).getByRole('button', { name: /rename/i }));
+    const title = within(dialog).getByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, 'Standup notes');
+    const folder = within(dialog).getByLabelText('Folder');
+    await user.clear(folder);
+    await user.type(folder, 'archive');
 
-    await waitFor(() => expect(calls.rename).toEqual([['work/standup.md', 'archive/standup.md']]));
+    await user.click(within(dialog).getByRole('button', { name: /^rename$/i }));
+
+    await waitFor(() =>
+      expect(calls.rename).toEqual([['work/standup.md', 'archive/Standup notes.md']]),
+    );
   });
 });
 
@@ -353,7 +409,7 @@ describe('encryption', () => {
   it('runs the recovery-key ceremony before the first note is sealed', async () => {
     const { user, calls } = renderWorkspace({ notes: NOTES });
 
-    await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('button', { name: /standup/ }) });
+    await user.click(rowMenu('work/standup.md'));
     await user.click(await screen.findByRole('menuitem', { name: /encrypt this note/i }));
 
     const dialog = await screen.findByRole('dialog', { name: /encrypt this note/i });
@@ -438,8 +494,7 @@ describe('status', () => {
 
   it('marks notes with unsynced edits in the tree', () => {
     renderWorkspace({ notes: NOTES, state: { dirty: ['work/standup.md'] } });
-    const row = screen.getByRole('button', { name: /standup/ });
-    expect(within(row).getByLabelText('unsaved')).toBeInTheDocument();
+    expect(within(row('work/standup.md')).getByLabelText('unsaved')).toBeInTheDocument();
   });
 });
 
@@ -456,7 +511,7 @@ describe('shortcuts', () => {
 
   it('⌘P hides and shows the preview', async () => {
     const { user } = renderWorkspace({ notes: NOTES });
-    await user.click(screen.getByRole('button', { name: /standup/ }));
+    await user.click(row('work/standup.md'));
     await waitFor(() => expect(document.querySelector('.preview')).not.toBeNull());
 
     await user.keyboard('{Meta>}p{/Meta}');

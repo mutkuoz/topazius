@@ -53,8 +53,9 @@ src/
     vault.ts        the controller the UI talks to: load, edit, encrypt, sync
 
   editor/
-    setup.ts        the CodeMirror instance: keymap, markdown, paste handling
-    commands.ts     bold/italic/list commands, as pure state transforms
+    setup.ts        the CodeMirror instance: keymap, markdown, paste handling,
+                    and the named actions the toolbar runs
+    commands.ts     formatting commands, as pure state transforms
     live-preview.ts decorations, as a pure function of document and selection
 
   sw/
@@ -64,8 +65,9 @@ src/
 
   ui/
     Setup.tsx  Lock.tsx  Shell.tsx  Workspace.tsx  Tree.tsx  Editor.tsx
-    Preview.tsx  Palette.tsx  Panels.tsx  Dialog.tsx  Prompt.tsx
-    ConflictDialog.tsx  Encryption.tsx  Install.tsx
+    Toolbar.tsx  NoteHeader.tsx  NoteDialogs.tsx  Preview.tsx  Palette.tsx
+    Panels.tsx  Dialog.tsx  Menu.tsx  Prompt.tsx  ConflictDialog.tsx
+    Encryption.tsx  Install.tsx  icons.tsx
 ```
 
 `vault.ts` is the seam. It owns the queue, the search index and the link graph, and exposes the
@@ -128,6 +130,15 @@ before its effects ever ran never restored focus at all.
 **`Editor.tsx` reports the path along with the text.** A note switch can land between an edit and the
 end of its 400ms debounce, and the pending text belongs to the note it was typed into.
 
+**The toolbar names its commands; it does not import them.** `ui/` asks for `'h1'` or `'bold'` and
+`editor/setup.ts` maps that to a CodeMirror command. It is the same rule as everywhere else here:
+`ui/` renders and delegates.
+
+**Tree rows put their content in a `<span>`, not straight into the `<button>`.** Chrome lays a
+button's children out through an internal box that centres them whatever `justify-content` says -
+which silently put every note in the middle of the sidebar with `flex-start` computed and ignored.
+Any flex button in this app needs the wrapper.
+
 **`vite.config.ts` narrows `test.fakeTimers`.** `fake-indexeddb` schedules via `setImmediate`;
 faking it freezes every IndexedDB operation and hangs unrelated suites. If you need `setInterval` or
 `queueMicrotask` faked, widen it per-file rather than globally.
@@ -151,7 +162,7 @@ sizes; the entry chunk is the one named `index-*.js`.
 
 ## Testing
 
-Vitest, with `fake-indexeddb` and `msw`. 421 tests.
+Vitest, with `fake-indexeddb` and `msw`. 458 tests.
 
 - **Real crypto.** Tests run genuine WebCrypto at the real 600,000 iterations. They are a few
   seconds slower for it, and that is the point — reducing the count to speed them up would test a

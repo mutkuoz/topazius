@@ -9,6 +9,7 @@ import {
   normalizePath,
   noteStem,
   slugify,
+  titleToFileName,
 } from '../src/lib/paths';
 
 describe('normalizePath', () => {
@@ -124,5 +125,41 @@ describe('slugify', () => {
   it('falls back to a usable name when nothing survives', () => {
     expect(slugify('///')).toBe('untitled');
     expect(slugify('')).toBe('untitled');
+  });
+});
+
+describe('titleToFileName', () => {
+  it('keeps the title as the user wrote it, spaces and case included', () => {
+    expect(titleToFileName('Weekly standup')).toBe('Weekly standup');
+    expect(titleToFileName('Q3 OKRs — draft')).toBe('Q3 OKRs — draft');
+  });
+
+  it('removes only what a filesystem or a URL cannot carry', () => {
+    expect(titleToFileName('a/b:c*d?e"f<g>h|i')).toBe('abcdefghi');
+    expect(titleToFileName('tabs\tand\nnewlines')).toBe('tabsandnewlines');
+  });
+
+  it('collapses runs of whitespace and trims the ends', () => {
+    expect(titleToFileName('  spaced   out  ')).toBe('spaced out');
+  });
+
+  it('refuses to produce a leading dot, which paths.ts would then reject', () => {
+    expect(titleToFileName('...hidden')).toBe('hidden');
+  });
+
+  it('falls back to a name when there is nothing left', () => {
+    expect(titleToFileName('   ')).toBe('Untitled');
+    expect(titleToFileName('///')).toBe('Untitled');
+  });
+
+  it('sidesteps the Windows reserved stems', () => {
+    expect(titleToFileName('CON')).toBe('CON note');
+    expect(titleToFileName('lpt1')).toBe('lpt1 note');
+  });
+
+  it('produces something normalizePath accepts', () => {
+    for (const title of ['Weekly standup', 'a/b:c', '...hidden', 'CON', '   ']) {
+      expect(() => normalizePath(`${titleToFileName(title)}.md`)).not.toThrow();
+    }
   });
 });

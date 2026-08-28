@@ -1,7 +1,23 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorSelection, EditorState, type StateCommand } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
-import { continueList, toggleBold, toggleItalic } from '../src/editor/commands';
+import {
+  continueList,
+  insertCodeBlock,
+  insertLink,
+  insertRule,
+  insertTable,
+  insertWikilink,
+  toggleBold,
+  toggleBulletList,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleOrderedList,
+  toggleQuote,
+  toggleStrikethrough,
+  toggleTaskList,
+} from '../src/editor/commands';
 import { activeLines, buildDecorations } from '../src/editor/live-preview';
 
 /**
@@ -93,6 +109,91 @@ describe('list continuation', () => {
   it('declines outside a list, so Enter does its normal thing', () => {
     const doc = 'just a paragraph';
     expect(run(stateFor(doc, { anchor: doc.length }), continueList).handled).toBe(false);
+  });
+});
+
+describe('the toolbar commands', () => {
+  const line = (doc: string, at = doc.length) => stateFor(doc, { anchor: at });
+
+  it('sets a heading, and clears it when pressed again', () => {
+    expect(run(line('A title'), toggleHeading(1)).doc).toBe('# A title');
+    expect(run(line('# A title'), toggleHeading(1)).doc).toBe('A title');
+  });
+
+  it('replaces one heading level with another rather than stacking them', () => {
+    expect(run(line('# A title'), toggleHeading(3)).doc).toBe('### A title');
+  });
+
+  it('turns a list item into a heading without keeping the bullet', () => {
+    expect(run(line('- an item'), toggleHeading(2)).doc).toBe('## an item');
+  });
+
+  it('applies to every line the selection touches', () => {
+    const state = stateFor('one\ntwo\nthree', { anchor: 0, head: 13 });
+    expect(run(state, toggleBulletList).doc).toBe('- one\n- two\n- three');
+  });
+
+  it('numbers an ordered list down the selection', () => {
+    const state = stateFor('one\ntwo\nthree', { anchor: 0, head: 13 });
+    expect(run(state, toggleOrderedList).doc).toBe('1. one\n2. two\n3. three');
+  });
+
+  it('toggles a task list on and off', () => {
+    expect(run(line('do the thing'), toggleTaskList).doc).toBe('- [ ] do the thing');
+    expect(run(line('- [x] done'), toggleTaskList).doc).toBe('done');
+  });
+
+  it('toggles a quote', () => {
+    expect(run(line('quoted'), toggleQuote).doc).toBe('> quoted');
+    expect(run(line('> quoted'), toggleQuote).doc).toBe('quoted');
+  });
+
+  it('wraps in strikethrough and inline code', () => {
+    expect(run(stateFor('gone', { anchor: 0, head: 4 }), toggleStrikethrough).doc).toBe('~~gone~~');
+    expect(run(stateFor('npm run dev', { anchor: 0, head: 11 }), toggleInlineCode).doc).toBe(
+      '`npm run dev`',
+    );
+  });
+
+  it('leaves the caret in the URL when the selection is the link text', () => {
+    const { doc, selection } = run(stateFor('the docs', { anchor: 0, head: 8 }), insertLink);
+    expect(doc).toBe('[the docs]()');
+    expect(doc.slice(selection.head)).toBe(')');
+  });
+
+  it('leaves the caret in the text when the selection is a URL', () => {
+    const url = 'https://example.com';
+    const { doc, selection } = run(stateFor(url, { anchor: 0, head: url.length }), insertLink);
+    expect(doc).toBe(`[](${url})`);
+    expect(selection.head).toBe(1);
+  });
+
+  it('wraps a selection as a wikilink', () => {
+    expect(run(stateFor('work/roadmap', { anchor: 0, head: 12 }), insertWikilink).doc).toBe(
+      '[[work/roadmap]]',
+    );
+  });
+
+  it('inserts a fenced code block around the selection', () => {
+    expect(run(stateFor('npm test', { anchor: 0, head: 8 }), insertCodeBlock).doc).toBe(
+      '```\nnpm test\n```\n',
+    );
+  });
+
+  it('inserts a table with the alignment row markdown uses', () => {
+    const { doc } = run(line(''), insertTable);
+    expect(doc).toContain('| --- | --- |');
+    expect(doc.split('\n')).toHaveLength(4);
+  });
+
+  it('inserts a divider on its own line', () => {
+    expect(run(line('text'), insertRule).doc).toBe('text\n---\n');
+  });
+
+  it('declines a heading that would change nothing', () => {
+    // mapLines returns false when the document would be identical, so the
+    // editor can fall through to whatever else is bound to the key.
+    expect(run(line(''), toggleQuote).handled).toBe(true);
   });
 });
 

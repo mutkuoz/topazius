@@ -1,30 +1,33 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'preact/hooks';
 import type { Conflict } from '../lib/conflict';
-import { slugify } from '../lib/paths';
 import { tagCounts } from '../lib/tags';
 import type { Vault } from '../lib/vault';
 import { ConflictDialog } from './ConflictDialog';
-import { Editor } from './Editor';
+import { Editor, type EditorControls } from './Editor';
 import { RecoveryKeyShown, SetupEncryption, UnlockVaultKey } from './Encryption';
 import { InstallButton } from './Install';
-import { Backlinks, StatusChip, TagBar } from './Panels';
+import { NewNoteDialog, RenameNoteDialog } from './NoteDialogs';
+import { NoteHeader, type SaveState, type ViewMode } from './NoteHeader';
 import { Palette, type PaletteAction } from './Palette';
+import { Backlinks, StatusChip, TagBar } from './Panels';
 import { Preview } from './Preview';
-import { Confirm, Prompt } from './Prompt';
+import { Confirm } from './Prompt';
 import { Shell, type Pane } from './Shell';
+import { Toolbar } from './Toolbar';
 import { Tree, type TreeAction } from './Tree';
+import { PlusIcon, SearchIcon, SidebarIcon } from './icons';
 import './workspace.css';
 
 export interface WorkspaceProps {
   vault: Vault;
   onLock: () => void;
-  /** The repository this vault points at, for the header. */
-  label: string;
+  /** Which repository this vault points at, for the header and the GitHub links. */
+  repo: { owner: string; repo: string; branch: string };
 }
 
 type Dialog =
   | { kind: 'none' }
-  | { kind: 'new'; folder: string; initial?: string }
+  | { kind: 'new'; folder: string; title?: string; encrypted?: boolean }
   | { kind: 'rename'; path: string }
   | { kind: 'delete'; path: string }
   | { kind: 'encrypt-setup'; then: () => void }
@@ -40,23 +43,25 @@ interface Doc {
 }
 
 /** The unlocked app: tree, editor, preview, and every dialog they can raise. */
-export function Workspace({ vault, onLock, label }: WorkspaceProps) {
+export function Workspace({ vault, onLock, repo }: WorkspaceProps) {
   // A render counter: the vault holds the state, this only asks Preact to
   // look at it again.
   const [, bump] = useReducer((count: number, _: unknown): number => count + 1, 0);
   const [selected, setSelected] = useState<string | null>(null);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [pane, setPane] = useState<Pane>('files');
-  const [showPreview, setShowPreview] = useState(true);
+  const [view, setView] = useState<ViewMode>('split');
   const [livePreview, setLivePreview] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(true);
   const [showBacklinks, setShowBacklinks] = useState(true);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' });
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Array<{ id: number; text: string }>>([]);
   const toastId = useRef(0);
   const handled = useRef(new Set<string>());
-  const insertIntoEditor = useRef<((text: string) => void) | null>(null);
+  const editor = useRef<EditorControls | null>(null);
 
   const state = vault.state();
 
@@ -86,6 +91,13 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
     },
     [vault],
   );
+
+  // The window title names the note, so a browser tab or an installed window
+  // is identifiable among a dozen others.
+  useEffect(() => {
+    const note = selected ? vault.note(selected) : undefined;
+    document.title = note ? `${note.title} — Topazius` : 'Topazius';
+  }, [selected, vault, state.paths]);
 
   // A conflict is a decision the user has to make, so it is modal (spec §13).
   useEffect(() => {
@@ -121,12 +133,12 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               path,
             );
 
-            const insert = insertIntoEditor.current;
-            if (insert) {
+            const controls = editor.current;
+            if (controls) {
               // Into the live document, at the cursor (spec §8.3). The editor's
               // own change path saves it, so nothing here can overwrite an edit
               // still sitting inside the save debounce.
-              insert(prepared.markdown);
+              controls.insert(prepared.markdown);
             } else {
               const current = await vault.read(path);
               const next = `${current}${current.endsWith('\n') || current === '' ? '' : '\n'}${prepared.markdown}\n`;
@@ -163,11 +175,39 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
     [state.sealed, state.hasVaultKeyFile],
   );
 
+  const setEncrypted = useCallback(
+    (path: string, on: boolean) => {
+      withVaultKey(() => {
+        void vault
+          .setEncrypted(path, on)
+          .then((next) => {
+            if (selected === path) open(next);
+            toast(on ? 'Note encrypted.' : 'Note decrypted.');
+          })
+          .catch((error: unknown) =>
+            toast(error instanceof Error ? error.message : 'Could not change that note.'),
+          );
+      });
+    },
+    [vault, selected, open, toast, withVaultKey],
+  );
+
+  const newNoteIn = useCallback(
+    (folder: string, title?: string) =>
+      setDialog({
+        kind: 'new',
+        folder,
+        ...(title ? { title } : {}),
+        encrypted: vault.folderDefault(folder) === 'encrypted',
+      }),
+    [vault],
+  );
+
   const onTreeAction = useCallback(
     (action: TreeAction) => {
       switch (action.kind) {
         case 'new':
-          setDialog({ kind: 'new', folder: action.folder });
+          newNoteIn(action.folder);
           return;
         case 'rename':
           setDialog({ kind: 'rename', path: action.path });
@@ -176,17 +216,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
           setDialog({ kind: 'delete', path: action.path });
           return;
         case 'encrypt':
-          withVaultKey(() => {
-            void vault
-              .setEncrypted(action.path, action.on)
-              .then((path) => {
-                if (selected === action.path) open(path);
-                toast(action.on ? 'Note encrypted.' : 'Note decrypted.');
-              })
-              .catch((error: unknown) =>
-                toast(error instanceof Error ? error.message : 'Could not change that note.'),
-              );
-          });
+          setEncrypted(action.path, action.on);
           return;
         case 'encrypt-folder':
           withVaultKey(() => {
@@ -238,29 +268,35 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
         }
       }
     },
-    [vault, selected, open, toast, withVaultKey],
+    [vault, selected, open, toast, withVaultKey, setEncrypted, newNoteIn],
   );
 
+  const folderOf = (path: string | null) => (path ? path.split('/').slice(0, -1).join('/') : '');
+
   const actions = useMemo((): PaletteAction[] => {
-    const folderOf = (path: string | null) => (path ? path.split('/').slice(0, -1).join('/') : '');
     return [
       {
         id: 'new',
         label: 'New note',
-        hint: 'in the current folder',
-        run: () => setDialog({ kind: 'new', folder: folderOf(selected) }),
+        hint: '⌘N',
+        run: () => newNoteIn(folderOf(selected)),
       },
       { id: 'save', label: 'Sync now', hint: '⌘S', run: () => void vault.flush() },
       {
-        id: 'preview',
-        label: showPreview ? 'Hide preview' : 'Show preview',
+        id: 'view',
+        label: view === 'split' ? 'Editor only' : 'Editor and preview',
         hint: '⌘P',
-        run: () => setShowPreview((on) => !on),
+        run: () => setView(view === 'split' ? 'edit' : 'split'),
       },
       {
         id: 'live',
-        label: livePreview ? 'Turn off live preview' : 'Turn on live preview',
+        label: livePreview ? 'Turn off styled markdown' : 'Turn on styled markdown',
         run: () => setLivePreview((on) => !on),
+      },
+      {
+        id: 'sidebar',
+        label: showSidebar ? 'Hide the note list' : 'Show the note list',
+        run: () => setShowSidebar((on) => !on),
       },
       {
         id: 'backlinks',
@@ -282,7 +318,7 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
             {
               id: 'encrypt',
               label: selected.endsWith('.enc') ? 'Decrypt this note' : 'Encrypt this note',
-              run: () => onTreeAction({ kind: 'encrypt', path: selected, on: !selected.endsWith('.enc') }),
+              run: () => setEncrypted(selected, !selected.endsWith('.enc')),
             },
           ]
         : []),
@@ -305,7 +341,20 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
         : []),
       { id: 'lock', label: 'Lock the vault', hint: '⌘L', run: onLock },
     ];
-  }, [selected, showPreview, livePreview, showBacklinks, state.hasVaultKeyFile, state.sealed, vault, onLock, onTreeAction, toast]);
+  }, [
+    selected,
+    view,
+    livePreview,
+    showSidebar,
+    showBacklinks,
+    state.hasVaultKeyFile,
+    state.sealed,
+    vault,
+    onLock,
+    toast,
+    setEncrypted,
+    newNoteIn,
+  ]);
 
   // Global shortcuts (spec §8.1). Registered here rather than in the editor so
   // they work with focus anywhere - the tree, the preview, the palette button.
@@ -319,7 +368,10 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
         setPaletteOpen(true);
       } else if (key === 'p') {
         event.preventDefault();
-        setShowPreview((on) => !on);
+        setView((current) => (current === 'split' ? 'edit' : 'split'));
+      } else if (key === 'n') {
+        event.preventDefault();
+        newNoteIn(folderOf(selected));
       } else if (key === 'l') {
         event.preventDefault();
         onLock();
@@ -331,30 +383,46 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onLock, vault]);
+  }, [onLock, vault, selected, newNoteIn]);
 
   const notes = vault.index().notes();
   const tags = useMemo(() => tagCounts(notes), [notes]);
   const visiblePaths = useMemo(() => {
-    if (!tagFilter) return state.paths;
-    const matching = new Set(
-      notes
-        .filter((note) => note.tags.some((tag) => tag.toLowerCase() === tagFilter.toLowerCase()))
-        .map((note) => note.path),
-    );
-    return state.paths.filter((path) => matching.has(path));
-  }, [state.paths, notes, tagFilter]);
+    let paths = state.paths;
+    if (folderFilter) {
+      paths = paths.filter((path) => path.startsWith(`${folderFilter}/`));
+    }
+    if (tagFilter) {
+      const matching = new Set(
+        notes
+          .filter((note) => note.tags.some((tag) => tag.toLowerCase() === tagFilter.toLowerCase()))
+          .map((note) => note.path),
+      );
+      paths = paths.filter((path) => matching.has(path));
+    }
+    return paths;
+  }, [state.paths, notes, tagFilter, folderFilter]);
 
   const unreadable = selected !== null && state.unreadable.includes(selected);
 
-  /**
-   * The path a new note in this folder should get. The folder's encryption
-   * default decides the extension, and it applies at creation only - it never
-   * touches a note that already exists (spec §9.5).
-   */
-  function suggestPath(folder: string): string {
-    const base = folder ? `${folder}/untitled.md` : 'untitled.md';
-    return vault.folderDefault(folder) === 'encrypted' ? `${base}.enc` : base;
+  /** What the note header's badge says about this note's journey to GitHub. */
+  function saveStateFor(path: string): SaveState {
+    if (state.conflicts.includes(path)) return 'conflict';
+    if (!state.dirty.includes(path)) return 'saved';
+    if (state.status === 'offline' || state.status === 'paused') return 'offline';
+    if (state.status === 'error') return 'error';
+    return state.status === 'saving' ? 'saving' : 'unsaved';
+  }
+
+  /** The note on GitHub. Null until it has actually been pushed there. */
+  function linksFor(path: string): { file: string; history: string } | null {
+    if (state.dirty.includes(path) && !state.paths.includes(path)) return null;
+    const encoded = path.split('/').map(encodeURIComponent).join('/');
+    const base = `https://github.com/${repo.owner}/${repo.repo}`;
+    return {
+      file: `${base}/blob/${encodeURIComponent(repo.branch)}/${encoded}`,
+      history: `${base}/commits/${encodeURIComponent(repo.branch)}/${encoded}`,
+    };
   }
 
   return (
@@ -362,14 +430,29 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
       <Shell
         pane={pane}
         onPane={setPane}
+        showSidebar={showSidebar}
         showAside={showBacklinks && selected !== null}
         header={
           <>
-            <strong class="brand">Topazius</strong>
-            <span class="repo">{label}</span>
-            <button type="button" class="secondary" onClick={() => setPaletteOpen(true)}>
-              Search… <kbd>⌘K</kbd>
+            <button
+              type="button"
+              class="icon-button"
+              aria-label={showSidebar ? 'Hide the note list' : 'Show the note list'}
+              aria-pressed={showSidebar}
+              title={showSidebar ? 'Hide the note list' : 'Show the note list'}
+              onClick={() => setShowSidebar((on) => !on)}
+            >
+              <SidebarIcon />
             </button>
+            <strong class="brand">Topazius</strong>
+            <span class="repo">{`${repo.owner}/${repo.repo}`}</span>
+
+            <button type="button" class="search-button" onClick={() => setPaletteOpen(true)}>
+              <SearchIcon />
+              <span>Search notes</span>
+              <kbd>⌘K</kbd>
+            </button>
+
             <span class="spacer" />
             <span class="shell-status">{state.message}</span>
             <StatusChip
@@ -392,15 +475,17 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
         sidebar={
           <>
             <div class="sidebar-actions">
-              <button
-                type="button"
-                onClick={() =>
-                  setDialog({ kind: 'new', folder: selected?.split('/').slice(0, -1).join('/') ?? '' })
-                }
-              >
+              <button type="button" class="primary" onClick={() => newNoteIn(folderFilter ?? folderOf(selected))}>
+                <PlusIcon />
                 New note
+                <kbd>⌘N</kbd>
               </button>
             </div>
+            {folderFilter && (
+              <button type="button" class="filter-chip" onClick={() => setFolderFilter(null)}>
+                In <strong>{folderFilter}</strong> — show everything
+              </button>
+            )}
             <Tree
               paths={visiblePaths}
               selected={selected}
@@ -414,9 +499,30 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
         }
         main={
           doc === null ? (
-            <p class="hint empty">
-              {state.loading ? 'Loading…' : 'Select a note, or press ⌘K to search.'}
-            </p>
+            <div class="empty">
+              {state.loading ? (
+                <p class="hint">Loading your notes…</p>
+              ) : (
+                <>
+                  <h2>{state.paths.length === 0 ? 'This vault is empty' : 'No note open'}</h2>
+                  <p class="hint">
+                    {state.paths.length === 0
+                      ? 'Write the first one — it becomes a markdown file in your repository.'
+                      : 'Pick one from the list, or search the whole vault.'}
+                  </p>
+                  <div class="empty-actions">
+                    <button type="button" onClick={() => newNoteIn(folderOf(selected))}>
+                      New note
+                    </button>
+                    {state.paths.length > 0 && (
+                      <button type="button" class="secondary" onClick={() => setPaletteOpen(true)}>
+                        Search… <kbd>⌘K</kbd>
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           ) : doc.error ? (
             <div class="panel-inline">
               <p class="alert" role="alert">
@@ -429,33 +535,60 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
               )}
             </div>
           ) : (
-            <div class={`panes${showPreview ? ' split' : ''}`} data-mobile={pane}>
-              <div class="pane pane-edit">
-                <Editor
-                  path={doc.path}
-                  text={doc.text}
-                  insertRef={insertIntoEditor}
-                  livePreview={livePreview}
-                  onChange={save}
-                  onSaveNow={() => void vault.flush()}
-                  onFiles={(files) => addFiles(files, doc.path)}
+            <div class="note">
+              <NoteHeader
+                path={doc.path}
+                title={vault.note(doc.path)?.title ?? doc.path.split('/').at(-1) ?? doc.path}
+                encrypted={doc.path.endsWith('.enc')}
+                save={saveStateFor(doc.path)}
+                view={view}
+                onView={setView}
+                onOpenFolder={(folder) => {
+                  setTagFilter(null);
+                  setFolderFilter(folder);
+                  setPane('files');
+                }}
+                onRename={() => setDialog({ kind: 'rename', path: doc.path })}
+                onDelete={() => setDialog({ kind: 'delete', path: doc.path })}
+                onToggleEncryption={() => setEncrypted(doc.path, !doc.path.endsWith('.enc'))}
+                links={linksFor(doc.path)}
+              />
+
+              {view !== 'preview' && (
+                <Toolbar
+                  run={(action) => editor.current?.run(action)}
+                  onPickImage={(files) => addFiles(files, doc.path)}
                 />
-              </div>
-              {showPreview && (
-                <div class="pane pane-preview">
-                  <Preview
-                    path={doc.path}
-                    text={doc.text}
-                    resolveLink={(target) => vault.resolveNoteLink(target)}
-                    onOpenNote={open}
-                    onCreateNote={(target) =>
-                      setDialog({ kind: 'new', folder: '', initial: pathForTarget(target) })
-                    }
-                    onSelectTag={setTagFilter}
-                    loadImage={loadImage}
-                  />
-                </div>
               )}
+
+              <div class={`panes${view === 'split' ? ' split' : ''}`} data-mobile={pane}>
+                {view !== 'preview' && (
+                  <div class="pane pane-edit">
+                    <Editor
+                      path={doc.path}
+                      text={doc.text}
+                      controls={editor}
+                      livePreview={livePreview}
+                      onChange={save}
+                      onSaveNow={() => void vault.flush()}
+                      onFiles={(files) => addFiles(files, doc.path)}
+                    />
+                  </div>
+                )}
+                {view !== 'edit' && (
+                  <div class="pane pane-preview">
+                    <Preview
+                      path={doc.path}
+                      text={doc.text}
+                      resolveLink={(target) => vault.resolveNoteLink(target)}
+                      onOpenNote={open}
+                      onCreateNote={(target) => newNoteIn(folderOf(doc.path), target)}
+                      onSelectTag={setTagFilter}
+                      loadImage={loadImage}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           )
         }
@@ -482,33 +615,30 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
       )}
 
       {dialog.kind === 'new' && (
-        <Prompt
-          title="New note"
-          label="Path"
-          initial={dialog.initial ?? suggestPath(dialog.folder)}
-          confirmLabel="Create"
-          hint="Folders are created as you name them: work/2026/standup.md"
+        <NewNoteDialog
+          paths={state.paths}
+          folder={dialog.folder}
+          {...(dialog.title ? { title: dialog.title } : {})}
+          canEncrypt={state.sealed === 'open'}
+          encrypted={dialog.encrypted === true && state.sealed === 'open'}
           onCancel={() => setDialog({ kind: 'none' })}
-          onSubmit={async (value) => {
-            const path = await vault.create(value.trim(), '');
+          onSubmit={async (path) => {
+            const created = await vault.create(path, '');
             setDialog({ kind: 'none' });
-            open(path);
+            open(created);
           }}
         />
       )}
 
       {dialog.kind === 'rename' && (
-        <Prompt
-          title="Rename or move"
-          label="New path"
-          initial={dialog.path}
-          confirmLabel="Rename"
-          hint="Moving a note never changes whether it is encrypted."
+        <RenameNoteDialog
+          path={dialog.path}
+          paths={state.paths}
           onCancel={() => setDialog({ kind: 'none' })}
-          onSubmit={async (value) => {
-            const path = await vault.rename(dialog.path, value.trim());
+          onSubmit={async (path) => {
+            const moved = await vault.rename(dialog.path, path);
             setDialog({ kind: 'none' });
-            if (selected === dialog.path) open(path);
+            if (selected === dialog.path) open(moved);
           }}
         />
       )}
@@ -580,11 +710,4 @@ export function Workspace({ vault, onLock, label }: WorkspaceProps) {
       )}
     </>
   );
-}
-
-/** Exported for the "create this missing note" path: `[[some idea]]` → `some-idea.md`. */
-export function pathForTarget(target: string): string {
-  return target.includes('/')
-    ? `${target.split('/').slice(0, -1).join('/')}/${slugify(target.split('/').at(-1) ?? target)}.md`
-    : `${slugify(target)}.md`;
 }

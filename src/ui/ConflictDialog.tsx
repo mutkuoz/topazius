@@ -87,7 +87,7 @@ export function ConflictDialog({ conflict, onResolve, onClose }: ConflictDialogP
         </p>
       )}
 
-      <div class="row">
+      <div class="dialog-actions">
         {merged === null ? (
           <>
             <button type="button" disabled={busy} onClick={() => void choose({ kind: 'mine' })}>

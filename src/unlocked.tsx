@@ -45,7 +45,7 @@ export function UnlockedApp({ db, session, config, onChange, onNotice, onLock }:
   return (
     <Workspace
       vault={vault}
-      label={`${config.owner}/${config.repo}`}
+      repo={{ owner: config.owner, repo: config.repo, branch: config.branch }}
       onLock={() => onLock(vault)}
     />
   );

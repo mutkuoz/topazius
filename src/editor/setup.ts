@@ -3,10 +3,27 @@ import { defaultKeymap, history, historyKeymap, indentLess, indentMore } from '@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { searchKeymap } from '@codemirror/search';
-import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, type Extension, type StateCommand } from '@codemirror/state';
 import { EditorView, drawSelection, highlightActiveLine, keymap, placeholder } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { continueList, insertAtCursor, toggleBold, toggleItalic } from './commands';
+import {
+  continueList,
+  insertAtCursor,
+  insertCodeBlock,
+  insertLink,
+  insertRule,
+  insertTable,
+  insertWikilink,
+  toggleBold,
+  toggleBulletList,
+  toggleHeading,
+  toggleInlineCode,
+  toggleItalic,
+  toggleOrderedList,
+  toggleQuote,
+  toggleStrikethrough,
+  toggleTaskList,
+} from './commands';
 import { livePreview } from './live-preview';
 
 /**
@@ -18,12 +35,57 @@ import { livePreview } from './live-preview';
 /** Marks a transaction as "not the user typing" - a note switch, a reload. */
 export const EXTERNAL = Annotation.define<boolean>();
 
+/**
+ * The formatting commands the toolbar can run, by name.
+ *
+ * Named rather than passed as functions so ui/ never imports from editor/ -
+ * the toolbar knows what it wants done, not how CodeMirror does it.
+ */
+export type EditorAction =
+  | 'h1'
+  | 'h2'
+  | 'h3'
+  | 'bold'
+  | 'italic'
+  | 'strike'
+  | 'code'
+  | 'bullet'
+  | 'ordered'
+  | 'task'
+  | 'quote'
+  | 'link'
+  | 'wikilink'
+  | 'codeblock'
+  | 'table'
+  | 'rule';
+
+const ACTIONS: Record<EditorAction, StateCommand> = {
+  h1: toggleHeading(1),
+  h2: toggleHeading(2),
+  h3: toggleHeading(3),
+  bold: toggleBold,
+  italic: toggleItalic,
+  strike: toggleStrikethrough,
+  code: toggleInlineCode,
+  bullet: toggleBulletList,
+  ordered: toggleOrderedList,
+  task: toggleTaskList,
+  quote: toggleQuote,
+  link: insertLink,
+  wikilink: insertWikilink,
+  codeblock: insertCodeBlock,
+  table: insertTable,
+  rule: insertRule,
+};
+
 export interface EditorHandle {
   view: EditorView;
   /** Replace the document without letting the change look like a user edit. */
   setDoc(text: string): void;
   setLivePreview(enabled: boolean): void;
   insert(text: string): void;
+  /** Run a toolbar command, keeping the caret in the editor. */
+  run(action: EditorAction): void;
   focus(): void;
   destroy(): void;
 }
@@ -135,6 +197,14 @@ export function createEditor(
 
     insert(text) {
       insertAtCursor(text)(view);
+      view.focus();
+    },
+
+    run(action) {
+      ACTIONS[action](view);
+      // Back to the document: a toolbar button that leaves focus on itself
+      // means the next keystroke goes nowhere.
+      view.focus();
     },
 
     focus: () => view.focus(),

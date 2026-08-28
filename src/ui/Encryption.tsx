@@ -108,7 +108,7 @@ export function SetupEncryption({ onCreate, onDone, onCancel }: SetupEncryptionP
               {error}
             </p>
           )}
-          <div class="row">
+          <div class="dialog-actions">
             <button type="submit" disabled={busy}>
               {busy ? 'Setting up…' : 'Set up encryption'}
             </button>
@@ -145,7 +145,7 @@ export function SetupEncryption({ onCreate, onDone, onCancel }: SetupEncryptionP
         />
         I have stored this recovery key somewhere safe.
       </label>
-      <div class="row">
+      <div class="dialog-actions">
         <button type="button" disabled={!confirmed} onClick={onDone}>
           Continue
         </button>
@@ -187,7 +187,7 @@ export function UnlockVaultKey({ onUnlock, onClose }: UnlockVaultKeyProps) {
           This vault has encrypted notes. Enter your passphrase, or the recovery key you saved when
           encryption was set up.
         </p>
-        <div class="row">
+        <div class="dialog-actions">
           <button
             type="button"
             class={which === 'passphrase' ? '' : 'secondary'}
@@ -224,7 +224,7 @@ export function UnlockVaultKey({ onUnlock, onClose }: UnlockVaultKeyProps) {
             {error}
           </p>
         )}
-        <div class="row">
+        <div class="dialog-actions">
           <button type="submit" disabled={busy}>
             {busy ? 'Opening…' : 'Unlock'}
           </button>
@@ -252,7 +252,7 @@ export function RecoveryKeyShown({ recoveryKey, onClose }: RecoveryKeyShownProps
       <p class="recovery-key">
         <code>{recoveryKey}</code>
       </p>
-      <div class="row">
+      <div class="dialog-actions">
         <button type="button" onClick={onClose}>
           I have saved it
         </button>

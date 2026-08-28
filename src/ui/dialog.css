@@ -67,7 +67,7 @@
   resize: vertical;
 }
 
-.dialog .row {
+.dialog .dialog-actions {
   display: flex;
   gap: 0.5rem;
   align-items: center;
@@ -172,4 +172,17 @@
   .diff {
     grid-template-columns: 1fr;
   }
+}
+
+.path-preview {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--border, #ddd) 30%, transparent);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.path-preview code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
