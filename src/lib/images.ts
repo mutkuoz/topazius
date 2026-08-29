@@ -99,8 +99,13 @@ export async function prepareImage(input: RawImage, deps: PrepareDeps = {}): Pro
     throw new ImageError(`${input.mime || 'That file'} is not an image Topazius can store.`);
   }
 
+  // The downscaler is always consulted, never gated on the byte size: spec
+  // §8.3's rule is "over 1600px *or* over 1MB", and a 4000px screenshot that
+  // happens to compress under a megabyte still wants shrinking. Deciding here
+  // would mean decoding the image here; the downscaler already does that, and
+  // returns the original untouched when there is nothing to do.
   const downscale = deps.downscale ?? passthrough;
-  const shrunk = input.bytes.length > DOWNSCALE_ABOVE_BYTES ? await downscale(input) : input;
+  const shrunk = await downscale(input);
 
   if (shrunk.bytes.length > REJECT_ABOVE_BYTES) {
     const mb = (shrunk.bytes.length / 1_000_000).toFixed(1);
@@ -134,7 +139,16 @@ export const canvasDownscaler: Downscaler = async (image) => {
   if (typeof document === 'undefined' || typeof createImageBitmap !== 'function') return image;
 
   const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], { type: image.mime });
-  const bitmap = await createImageBitmap(blob);
+  // Decoding is the one step here that can fail on input the app cannot vet:
+  // bytes that claim to be a PNG but are not, or a format this browser will
+  // not decode. Shrinking is an optimisation, so a failure here degrades to
+  // uploading the original rather than losing the paste.
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch {
+    return image;
+  }
   const size = scaledSize(bitmap.width, bitmap.height);
 
   if (size.width === bitmap.width && size.height === bitmap.height && image.bytes.length <= DOWNSCALE_ABOVE_BYTES) {
